@@ -33,8 +33,16 @@ $secretBytes = [byte[]]::new(32)
 $sessionSecret = [Convert]::ToBase64String($secretBytes)
 
 & az group create --name $ResourceGroupName --location $Location | Out-Null
-& az appservice plan create --name $PlanName --resource-group $ResourceGroupName --is-linux --sku $Sku | Out-Null
-& az webapp create --name $AppName --resource-group $ResourceGroupName --plan $PlanName --runtime "NODE:22-lts" | Out-Null
+
+& az appservice plan show --name $PlanName --resource-group $ResourceGroupName 1>$null 2>$null
+if ($LASTEXITCODE -ne 0) {
+    & az appservice plan create --name $PlanName --resource-group $ResourceGroupName --is-linux --sku $Sku | Out-Null
+}
+
+& az webapp show --name $AppName --resource-group $ResourceGroupName 1>$null 2>$null
+if ($LASTEXITCODE -ne 0) {
+    & az webapp create --name $AppName --resource-group $ResourceGroupName --plan $PlanName --runtime "NODE:22-lts" | Out-Null
+}
 & az webapp config set --name $AppName --resource-group $ResourceGroupName --startup-file "npm run start" | Out-Null
 & az webapp config appsettings set `
     --name $AppName `
@@ -45,25 +53,42 @@ $sessionSecret = [Convert]::ToBase64String($secretBytes)
         "M365_GRAPH_SCOPES=$GraphScopes" `
         "SESSION_SECRET=$sessionSecret" `
         "NODE_ENV=production" `
-        "SCM_DO_BUILD_DURING_DEPLOYMENT=true" `
-        "ENABLE_ORYX_BUILD=true" `
+        "SCM_DO_BUILD_DURING_DEPLOYMENT=false" `
+        "ENABLE_ORYX_BUILD=false" `
         "WEBSITE_NODE_DEFAULT_VERSION=~22" | Out-Null
+
+$npmCommand = if ($IsWindows) { "npm.cmd" } else { "npm" }
+& $npmCommand run build
+if ($LASTEXITCODE -ne 0) {
+    throw "Local production build failed."
+}
 
 $stagingRoot = Join-Path $env:TEMP "bpmnfilehandler-deploy-$([guid]::NewGuid())"
 $zipPath = "$stagingRoot.zip"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$excluded = @(".git", "node_modules", "dist", ".vite", "coverage")
 
 New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
 
-Get-ChildItem -LiteralPath $repoRoot -Force |
-    Where-Object { $excluded -notcontains $_.Name } |
-    ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $stagingRoot -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "dist") -Destination $stagingRoot -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "package.json") -Destination $stagingRoot -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot "package-lock.json") -Destination $stagingRoot -Force
+
+Push-Location $stagingRoot
+try {
+    & $npmCommand ci --omit=dev --ignore-scripts
+    if ($LASTEXITCODE -ne 0) {
+        throw "Production dependency install failed."
     }
+}
+finally {
+    Pop-Location
+}
 
 Compress-Archive -Path (Join-Path $stagingRoot "*") -DestinationPath $zipPath -Force
 & az webapp deployment source config-zip --name $AppName --resource-group $ResourceGroupName --src $zipPath | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    throw "Azure App Service zip deployment failed."
+}
 
 Remove-Item -LiteralPath $stagingRoot -Recurse -Force
 Remove-Item -LiteralPath $zipPath -Force

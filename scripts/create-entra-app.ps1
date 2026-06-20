@@ -59,7 +59,9 @@ foreach ($scope in $Scopes) {
 $patch = @{
     spa = @{
         redirectUris = @(
+            $normalizedBaseUrl,
             "$normalizedBaseUrl/auth.html",
+            "http://localhost:5173",
             "http://localhost:5173/auth.html"
         )
     }
@@ -97,7 +99,7 @@ if (-not $SkipAdminConsent) {
     appId = $appId
     objectId = $appObjectId
     displayName = $DisplayName
-    redirectUri = "$normalizedBaseUrl/auth.html"
+    redirectUris = @($normalizedBaseUrl, "$normalizedBaseUrl/auth.html")
     scopes = $Scopes
     adminConsentGranted = (-not $SkipAdminConsent)
 } | ConvertTo-Json -Depth 5

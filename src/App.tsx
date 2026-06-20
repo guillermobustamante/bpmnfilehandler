@@ -9,6 +9,7 @@ import { LogIn, TriangleAlert } from "lucide-react";
 import { BpmnWorkspace } from "./components/BpmnWorkspace";
 import { IconButton } from "./components/IconButton";
 import { createMsalClient, type PublicConfig } from "./auth/msal";
+import { ManualLauncher } from "./components/ManualLauncher";
 
 export type LaunchContext = {
   id: string;
@@ -25,7 +26,7 @@ export type LaunchContext = {
 type AppState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; config: PublicConfig; launch: LaunchContext; msal: PublicClientApplication };
+  | { kind: "ready"; config: PublicConfig; launch: LaunchContext | null; msal: PublicClientApplication };
 
 export function App() {
   const [state, setState] = useState<AppState>({ kind: "loading" });
@@ -39,29 +40,21 @@ export function App() {
 
     async function bootstrap() {
       try {
-        if (!route) {
-          setState({
-            kind: "error",
-            message: "Open a BPMN file from SharePoint or OneDrive to start a handler session."
-          });
-          return;
-        }
-
         const [configResponse, launchResponse] = await Promise.all([
           fetch("/api/config", { cache: "no-store" }),
-          fetch(`/api/launch/${encodeURIComponent(route.launchId)}`, { cache: "no-store" })
+          route ? fetch(`/api/launch/${encodeURIComponent(route.launchId)}`, { cache: "no-store" }) : null
         ]);
 
         if (!configResponse.ok) {
           throw new Error("Could not load authentication configuration.");
         }
-        if (!launchResponse.ok) {
+        if (launchResponse && !launchResponse.ok) {
           const details = await launchResponse.json().catch(() => ({}));
           throw new Error(details.error || "Could not load file handler launch context.");
         }
 
         const config = (await configResponse.json()) as PublicConfig;
-        const launch = (await launchResponse.json()) as LaunchContext;
+        const launch = launchResponse ? ((await launchResponse.json()) as LaunchContext) : null;
 
         if (!config.configured) {
           throw new Error("The handler is deployed without M365_CLIENT_ID.");
@@ -69,9 +62,11 @@ export function App() {
 
         const msal = createMsalClient(config);
         await msal.initialize();
-        await msal.handleRedirectPromise();
+        const redirectResponse = await msal.handleRedirectPromise({
+          navigateToLoginRequestUrl: true
+        });
 
-        const existingAccount = pickAccount(msal.getAllAccounts(), launch.userId);
+        const existingAccount = redirectResponse?.account || pickAccount(msal.getAllAccounts(), launch?.userId);
         if (existingAccount) {
           msal.setActiveAccount(existingAccount);
         }
@@ -107,7 +102,7 @@ export function App() {
       try {
         const response = await readyState.msal.ssoSilent({
           scopes: readyState.config.scopes,
-          loginHint: readyState.launch.userId
+          loginHint: readyState.launch?.userId
         });
 
         if (!cancelled) {
@@ -135,14 +130,12 @@ export function App() {
 
     setAuthMessage("");
     try {
-      const response = await state.msal.loginPopup({
+      await state.msal.loginRedirect({
         scopes: state.config.scopes,
-        loginHint: state.launch.userId,
-        prompt: "select_account"
+        loginHint: state.launch?.userId,
+        prompt: "select_account",
+        redirectStartPage: window.location.href
       });
-
-      state.msal.setActiveAccount(response.account);
-      setAccount(response.account);
     } catch (error) {
       setAuthMessage(error instanceof Error ? error.message : "Sign-in did not complete.");
     }
@@ -166,11 +159,12 @@ export function App() {
       return token.accessToken;
     } catch (error) {
       if (error instanceof BrowserAuthError || error instanceof InteractionRequiredAuthError) {
-        const token = await state.msal.acquireTokenPopup({
+        await state.msal.acquireTokenRedirect({
           account: activeAccount,
-          scopes: state.config.scopes
+          scopes: state.config.scopes,
+          redirectStartPage: window.location.href
         });
-        return token.accessToken;
+        throw new Error("Redirecting for Microsoft 365 access.");
       }
 
       throw error;
@@ -187,7 +181,7 @@ export function App() {
 
   if (!account) {
     return (
-      <CenteredMessage title="Sign in" message={authMessage || state.launch.userId}>
+      <CenteredMessage title="Sign in" message={authMessage || state.launch?.userId || "Use your Microsoft 365 account."}>
         <IconButton label="Sign in" onClick={signIn}>
           <LogIn size={18} />
         </IconButton>
@@ -195,7 +189,11 @@ export function App() {
     );
   }
 
-  return <BpmnWorkspace getAccessToken={getAccessToken} launch={state.launch} />;
+  if (state.launch) {
+    return <BpmnWorkspace getAccessToken={getAccessToken} launch={state.launch} />;
+  }
+
+  return <ManualLauncher getAccessToken={getAccessToken} />;
 }
 
 function CenteredMessage({

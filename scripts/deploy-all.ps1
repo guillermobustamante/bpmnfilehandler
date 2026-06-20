@@ -44,7 +44,17 @@ $handler = & "$PSScriptRoot\register-file-handler.ps1" `
     -AppBaseUrl $deployment.appBaseUrl | ConvertFrom-Json
 
 Write-Host "Refreshing tenant file handler cache..."
-$refresh = & "$PSScriptRoot\refresh-file-handler-cache.ps1" -TenantHostName $TenantHostName
+$refresh = $null
+try {
+    $refresh = & "$PSScriptRoot\refresh-file-handler-cache.ps1" -TenantHostName $TenantHostName
+}
+catch {
+    $refresh = @{
+        status = "failed"
+        message = $_.Exception.Message
+        note = "File Handler registration remains valid. Microsoft 365 may take 24-48 hours to show new handlers without a successful cache refresh."
+    }
+}
 
 [pscustomobject]@{
     entraApp = $entra
@@ -52,4 +62,3 @@ $refresh = & "$PSScriptRoot\refresh-file-handler-cache.ps1" -TenantHostName $Ten
     fileHandler = $handler
     cacheRefresh = $refresh
 } | ConvertTo-Json -Depth 20
-

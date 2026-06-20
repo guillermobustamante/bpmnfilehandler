@@ -14,7 +14,7 @@ export function createMsalClient(config: PublicConfig): PublicClientApplication 
     auth: {
       authority: config.authority,
       clientId: config.clientId,
-      redirectUri: `${window.location.origin}/auth.html`
+      redirectUri: window.location.origin
     },
     cache: {
       cacheLocation: "sessionStorage"

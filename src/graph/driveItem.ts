@@ -4,6 +4,12 @@ export type DriveItemMetadata = {
   eTag?: string;
   webUrl?: string;
   size?: number;
+  parentReference?: {
+    driveId?: string;
+    id?: string;
+    path?: string;
+    siteId?: string;
+  };
   lastModifiedDateTime?: string;
   lastModifiedBy?: {
     user?: {
@@ -56,6 +62,35 @@ export async function putDriveItemContent(
   return (await response.json()) as DriveItemMetadata;
 }
 
+export async function resolveDriveItemInput(
+  input: string,
+  accessToken: string
+): Promise<{ itemUrl: string; metadata: DriveItemMetadata }> {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    throw new Error("Enter a SharePoint or OneDrive BPMN file link.");
+  }
+
+  if (trimmed.startsWith("https://graph.microsoft.com/v1.0/")) {
+    const metadata = await getDriveItemMetadata(trimmed, accessToken);
+    assertBpmnFile(metadata.name);
+    return { itemUrl: trimmed, metadata };
+  }
+
+  const metadata = await resolveSharingUrl(trimmed, accessToken);
+  assertBpmnFile(metadata.name);
+
+  const driveId = metadata.parentReference?.driveId;
+  if (!driveId) {
+    throw new Error("Microsoft Graph did not return a drive ID for this file.");
+  }
+
+  return {
+    itemUrl: `https://graph.microsoft.com/v1.0/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(metadata.id)}`,
+    metadata
+  };
+}
+
 async function graphFetch(url: string, accessToken: string, init: RequestInit): Promise<Response> {
   const response = await fetch(url, {
     ...init,
@@ -92,3 +127,47 @@ function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
+async function resolveSharingUrl(webUrl: string, accessToken: string): Promise<DriveItemMetadata> {
+  let parsed: URL;
+  try {
+    parsed = new URL(webUrl);
+  } catch {
+    throw new Error("Enter a valid SharePoint or OneDrive file URL.");
+  }
+
+  if (!parsed.hostname.endsWith(".sharepoint.com") && !parsed.hostname.endsWith(".sharepoint-df.com")) {
+    throw new Error("Only SharePoint or OneDrive for Business links are supported.");
+  }
+
+  const shareId = `u!${base64UrlEncode(webUrl)}`;
+  const response = await graphFetch(
+    `https://graph.microsoft.com/v1.0/shares/${shareId}/driveItem?$select=id,name,eTag,webUrl,size,parentReference,lastModifiedDateTime,lastModifiedBy`,
+    accessToken,
+    {
+      headers: {
+        Accept: "application/json"
+      }
+    }
+  );
+
+  return (await response.json()) as DriveItemMetadata;
+}
+
+function assertBpmnFile(name: string): void {
+  if (!name.toLowerCase().endsWith(".bpmn")) {
+    throw new Error("The selected file is not a .bpmn file.");
+  }
+}
+
+function base64UrlEncode(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}

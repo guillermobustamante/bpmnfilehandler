@@ -28,6 +28,8 @@ The script creates:
 - Microsoft 365 File Handler 2.0 `addIns` registration for `.bpmn`.
 - Tenant-wide File Handler cache refresh.
 
+The App Service deployment package is built locally and includes the compiled app plus runtime dependencies. Remote Oryx build is disabled for deterministic deployment.
+
 ## Manual Deployment Steps
 
 1. Create the app registration:
@@ -67,4 +69,4 @@ Add `-SkipAdminConsent` only if the tenant requires consent to be granted in a s
 .\scripts\refresh-file-handler-cache.ps1 -TenantHostName "<tenant>.sharepoint.com"
 ```
 
-Microsoft caches File Handler registrations aggressively, so tenant-wide visibility can still take time after a successful registration.
+Microsoft caches File Handler registrations aggressively, so tenant-wide visibility can still take time after a successful registration. Some tenants reject Azure CLI's SharePoint token for this endpoint with `invalidScope`; in that case, the registration is still valid and should propagate naturally.

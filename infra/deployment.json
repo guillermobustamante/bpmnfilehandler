@@ -1,0 +1,26 @@
+{
+  "tenantId": "911a2cd5-fcc5-4ccb-ae76-b740c096c559",
+  "tenantDisplayName": "Evolve Global Solutions",
+  "sharePointHostName": "evolvegs.sharepoint.com",
+  "azureSubscriptionId": "5ce30dc6-7731-4317-8540-060abd50d943",
+  "resourceGroupName": "rg-bpmn-file-handler",
+  "location": "canadacentral",
+  "appServiceName": "bpmn-file-handler-2f18b433",
+  "appBaseUrl": "https://bpmn-file-handler-2f18b433.azurewebsites.net",
+  "entraAppDisplayName": "BPMN File Handler",
+  "entraApplicationObjectId": "fdcc308a-adbe-41fa-81e2-b09b3b76fa9d",
+  "entraClientId": "cdba2558-f171-42c2-9ab5-531bfe57e9d1",
+  "fileHandlerId": "4c78b5e2-9ee5-4250-abec-b058654dfe66",
+  "extension": ".bpmn",
+  "actions": ["open", "preview"],
+  "graphDelegatedScopes": ["User.Read", "Files.ReadWrite.All"],
+  "deploymentVerifiedAt": "2026-06-20T18:42:00Z",
+  "cacheRefreshStatus": "failed: SharePoint Online rejected Azure CLI token with invalidScope",
+  "notes": [
+    "App Service health endpoint returned ok.",
+    "Runtime config endpoint returned configured=true.",
+    "File Handler POST endpoint returned expected 303 launch redirect.",
+    "Entra app has tenant-wide delegated consent for User.Read and Files.ReadWrite.All.",
+    "Root SPA redirect URI is registered for redirect-based sign-in."
+  ]
+}

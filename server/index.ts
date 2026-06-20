@@ -31,6 +31,7 @@ app.use(
   helmet({
     frameguard: false,
     crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
@@ -223,4 +224,3 @@ function assertAllowedGraphUrl(rawUrl: string): void {
     throw new Error("File handler launch item URL must use Microsoft Graph v1.0.");
   }
 }
-

@@ -180,6 +180,70 @@ textarea {
   gap: 8px;
 }
 
+.manual {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 24px;
+  background: #f5f7fa;
+}
+
+.manual__panel {
+  display: grid;
+  width: min(720px, 100%);
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.manual__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.manual__heading h1 {
+  margin: 0;
+  color: #172033;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.manual__label {
+  color: #56647a;
+  font-size: 13px;
+}
+
+.manual__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.manual__input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #c9d2df;
+  border-radius: 6px;
+  color: #172033;
+}
+
+.manual__input:focus {
+  border-color: #0f6cbd;
+  outline: 2px solid #cfe4fa;
+}
+
+.manual__error {
+  margin: 0;
+  color: #a4262c;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .toolbar {
     align-items: stretch;
@@ -190,5 +254,8 @@ textarea {
   .toolbar__actions {
     flex-wrap: wrap;
   }
-}
 
+  .manual__row {
+    grid-template-columns: 1fr;
+  }
+}
