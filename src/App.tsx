@@ -7,9 +7,22 @@ import {
 } from "@azure/msal-browser";
 import { LogIn, TriangleAlert } from "lucide-react";
 import { BpmnWorkspace } from "./components/BpmnWorkspace";
+import { DirectLauncher } from "./components/DirectLauncher";
 import { IconButton } from "./components/IconButton";
 import { createMsalClient, type PublicConfig } from "./auth/msal";
 import { ManualLauncher } from "./components/ManualLauncher";
+
+const pendingLaunchStorageKey = "bpmnFileHandler.pendingLaunch";
+const pendingFileUrlStorageKey = "bpmnFileHandler.pendingFileUrl";
+const pendingDirectLaunchStorageKey = "bpmnFileHandler.pendingDirectLaunch";
+
+export type ViewerMode = "modeler" | "viewer";
+
+export type DirectLaunchOptions = {
+  extension?: string;
+  fileUrl: string;
+  mode?: ViewerMode;
+};
 
 export type LaunchContext = {
   id: string;
@@ -18,7 +31,9 @@ export type LaunchContext = {
   client?: string;
   userId?: string;
   domainHint?: string;
+  extension?: string;
   itemUrls: string[];
+  mode?: ViewerMode;
   createdAt: string;
   expiresAt: string;
 };
@@ -26,7 +41,13 @@ export type LaunchContext = {
 type AppState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
-  | { kind: "ready"; config: PublicConfig; launch: LaunchContext | null; msal: PublicClientApplication };
+  | {
+      kind: "ready";
+      config: PublicConfig;
+      directLaunch: DirectLaunchOptions | null;
+      launch: LaunchContext | null;
+      msal: PublicClientApplication;
+    };
 
 export function App() {
   const [state, setState] = useState<AppState>({ kind: "loading" });
@@ -34,6 +55,7 @@ export function App() {
   const [authMessage, setAuthMessage] = useState<string>("");
 
   const route = useMemo(() => parseLaunchRoute(window.location.pathname), []);
+  const requestedDirectLaunch = useMemo(() => parseDirectLaunchOptions(window.location.search), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +76,9 @@ export function App() {
         }
 
         const config = (await configResponse.json()) as PublicConfig;
-        const launch = launchResponse ? ((await launchResponse.json()) as LaunchContext) : null;
+        const routeLaunch = launchResponse ? ((await launchResponse.json()) as LaunchContext) : null;
+        const launch = routeLaunch || (hasMsalAuthResponse() ? readPendingLaunch() : null);
+        const directLaunch = requestedDirectLaunch || (hasMsalAuthResponse() ? readPendingDirectLaunch() : null);
 
         if (!config.configured) {
           throw new Error("The handler is deployed without M365_CLIENT_ID.");
@@ -63,8 +87,19 @@ export function App() {
         const msal = createMsalClient(config);
         await msal.initialize();
         const redirectResponse = await msal.handleRedirectPromise({
-          navigateToLoginRequestUrl: true
+          navigateToLoginRequestUrl: false
         });
+
+        if (redirectResponse) {
+          clearPendingLaunch();
+          clearPendingDirectLaunch();
+          clearPendingFileUrl();
+          if (launch && !route) {
+            window.history.replaceState(null, "", `/launch/${launch.action}/${launch.id}`);
+          } else if (directLaunch && !requestedDirectLaunch) {
+            window.history.replaceState(null, "", buildDirectLaunchPath(directLaunch));
+          }
+        }
 
         const existingAccount = redirectResponse?.account || pickAccount(msal.getAllAccounts(), launch?.userId);
         if (existingAccount) {
@@ -73,7 +108,7 @@ export function App() {
 
         if (!cancelled) {
           setAccount(existingAccount);
-          setState({ kind: "ready", config, launch, msal });
+          setState({ kind: "ready", config, directLaunch, launch, msal });
         }
       } catch (error) {
         if (!cancelled) {
@@ -89,7 +124,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [route]);
+  }, [requestedDirectLaunch, route]);
 
   useEffect(() => {
     if (state.kind !== "ready" || account) {
@@ -130,10 +165,40 @@ export function App() {
 
     setAuthMessage("");
     try {
-      await state.msal.loginRedirect({
+      if (state.launch) {
+        writePendingLaunch(state.launch);
+      } else {
+        clearPendingLaunch();
+      }
+      if (state.directLaunch) {
+        writePendingDirectLaunch(state.directLaunch);
+      } else {
+        clearPendingDirectLaunch();
+        clearPendingFileUrl();
+      }
+
+      const request = {
         scopes: state.config.scopes,
-        loginHint: state.launch?.userId,
-        prompt: "select_account",
+        loginHint: state.launch?.userId
+      };
+
+      if (isEmbedded()) {
+        const response = await state.msal.loginPopup({
+          ...request,
+          redirectUri: `${window.location.origin}/auth.html`
+        });
+        state.msal.setActiveAccount(response.account);
+        setAccount(response.account);
+        clearPendingLaunch();
+        clearPendingDirectLaunch();
+        clearPendingFileUrl();
+        setAuthMessage("");
+        return;
+      }
+
+      await state.msal.loginRedirect({
+        ...request,
+        redirectUri: window.location.origin,
         redirectStartPage: window.location.href
       });
     } catch (error) {
@@ -159,9 +224,31 @@ export function App() {
       return token.accessToken;
     } catch (error) {
       if (error instanceof BrowserAuthError || error instanceof InteractionRequiredAuthError) {
+        if (state.launch) {
+          writePendingLaunch(state.launch);
+        }
+        if (state.directLaunch) {
+          writePendingDirectLaunch(state.directLaunch);
+        }
+
+        if (isEmbedded()) {
+          const token = await state.msal.acquireTokenPopup({
+            account: activeAccount,
+            scopes: state.config.scopes,
+            redirectUri: `${window.location.origin}/auth.html`
+          });
+          state.msal.setActiveAccount(token.account);
+          setAccount(token.account);
+          clearPendingLaunch();
+          clearPendingDirectLaunch();
+          clearPendingFileUrl();
+          return token.accessToken;
+        }
+
         await state.msal.acquireTokenRedirect({
           account: activeAccount,
           scopes: state.config.scopes,
+          redirectUri: window.location.origin,
           redirectStartPage: window.location.href
         });
         throw new Error("Redirecting for Microsoft 365 access.");
@@ -191,6 +278,10 @@ export function App() {
 
   if (state.launch) {
     return <BpmnWorkspace getAccessToken={getAccessToken} launch={state.launch} />;
+  }
+
+  if (state.directLaunch) {
+    return <DirectLauncher directLaunch={state.directLaunch} getAccessToken={getAccessToken} />;
   }
 
   return <ManualLauncher getAccessToken={getAccessToken} />;
@@ -229,6 +320,27 @@ function parseLaunchRoute(pathname: string): { action: "open" | "preview"; launc
   };
 }
 
+function parseDirectLaunchOptions(search: string): DirectLaunchOptions | null {
+  const params = new URLSearchParams(search);
+  const fileUrl = params.get("fileUrl");
+  if (!fileUrl) {
+    return null;
+  }
+
+  const trimmed = fileUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const mode = params.get("mode") === "viewer" ? "viewer" : params.get("mode") === "modeler" ? "modeler" : undefined;
+  const extension = normalizeExtension(params.get("extension") || "");
+  return {
+    extension: extension || undefined,
+    fileUrl: trimmed,
+    mode
+  };
+}
+
 function pickAccount(accounts: AccountInfo[], loginHint?: string): AccountInfo | null {
   if (accounts.length === 0) {
     return null;
@@ -244,4 +356,106 @@ function pickAccount(accounts: AccountInfo[], loginHint?: string): AccountInfo |
     accounts.find((candidate) => candidate.idTokenClaims?.login_hint === normalizedHint) ||
     accounts[0]
   );
+}
+
+function hasMsalAuthResponse(): boolean {
+  const authResponse = `${window.location.search}${window.location.hash}`;
+  return /(?:[?#&])(code|error|error_description)=/.test(authResponse);
+}
+
+function isEmbedded(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+function writePendingLaunch(launch: LaunchContext): void {
+  sessionStorage.setItem(pendingLaunchStorageKey, JSON.stringify(launch));
+}
+
+function clearPendingLaunch(): void {
+  sessionStorage.removeItem(pendingLaunchStorageKey);
+}
+
+function writePendingDirectLaunch(directLaunch: DirectLaunchOptions): void {
+  sessionStorage.setItem(pendingDirectLaunchStorageKey, JSON.stringify(directLaunch));
+  sessionStorage.setItem(pendingFileUrlStorageKey, directLaunch.fileUrl);
+}
+
+function clearPendingFileUrl(): void {
+  sessionStorage.removeItem(pendingFileUrlStorageKey);
+}
+
+function clearPendingDirectLaunch(): void {
+  sessionStorage.removeItem(pendingDirectLaunchStorageKey);
+}
+
+function readPendingDirectLaunch(): DirectLaunchOptions | null {
+  const raw = sessionStorage.getItem(pendingDirectLaunchStorageKey);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as DirectLaunchOptions;
+      if (parsed.fileUrl?.trim()) {
+        return {
+          extension: normalizeExtension(parsed.extension || "") || undefined,
+          fileUrl: parsed.fileUrl.trim(),
+          mode: parsed.mode === "viewer" || parsed.mode === "modeler" ? parsed.mode : undefined
+        };
+      }
+    } catch {
+      clearPendingDirectLaunch();
+    }
+  }
+
+  const legacyFileUrl = sessionStorage.getItem(pendingFileUrlStorageKey)?.trim();
+  return legacyFileUrl ? { fileUrl: legacyFileUrl } : null;
+}
+
+function readPendingLaunch(): LaunchContext | null {
+  const raw = sessionStorage.getItem(pendingLaunchStorageKey);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const launch = JSON.parse(raw) as LaunchContext;
+    if (!launch.id || !launch.action || !Array.isArray(launch.itemUrls)) {
+      clearPendingLaunch();
+      return null;
+    }
+
+    if (Date.parse(launch.expiresAt) <= Date.now()) {
+      clearPendingLaunch();
+      return null;
+    }
+
+    return launch;
+  } catch {
+    clearPendingLaunch();
+    return null;
+  }
+}
+
+function buildDirectLaunchPath(directLaunch: DirectLaunchOptions): string {
+  const params = new URLSearchParams();
+  params.set("fileUrl", directLaunch.fileUrl);
+  if (directLaunch.mode) {
+    params.set("mode", directLaunch.mode);
+  }
+  if (directLaunch.extension) {
+    params.set("extension", directLaunch.extension);
+  }
+
+  return `/?${params.toString()}`;
+}
+
+function normalizeExtension(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed.startsWith(".") ? trimmed : `.${trimmed}`;
 }

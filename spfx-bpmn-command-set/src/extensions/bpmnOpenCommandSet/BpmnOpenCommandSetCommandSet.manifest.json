@@ -1,0 +1,28 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/command-set-extension-manifest.schema.json",
+
+  "id": "c3e13f04-c3e1-4b55-8fd5-d7557cd15752",
+  "alias": "BpmnOpenCommandSetCommandSet",
+  "componentType": "Extension",
+  "extensionType": "ListViewCommandSet",
+
+  // The "*" signifies that the version should be taken from the package.json
+  "version": "*",
+  "manifestVersion": 2,
+
+  // If true, the component can only be installed on sites where Custom Script is allowed.
+  // Components that allow authors to embed arbitrary script code should set this to true.
+  // https://support.office.com/en-us/article/Turn-scripting-capabilities-on-or-off-1f2c515f-5d7e-448a-9fd7-835da935584f
+  "requiresCustomScript": false,
+
+  "items": {
+    "OPEN_BPMN": {
+      "title": { "default": "File Preview app" },
+      "type": "command"
+    },
+    "BPMN_SETTINGS": {
+      "title": { "default": "Tenant file preview settings" },
+      "type": "command"
+    }
+  }
+}

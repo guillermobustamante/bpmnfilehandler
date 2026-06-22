@@ -1,0 +1,33 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx/client-side-web-part-manifest.schema.json",
+  "id": "58ccbc3f-a8dd-40ed-b4f3-c4a647338da8",
+  "alias": "FilePreviewAdminWebPart",
+  "componentType": "WebPart",
+  "version": "*",
+  "manifestVersion": 2,
+  "requiresCustomScript": false,
+  "supportsThemeVariants": true,
+  "supportedHosts": [
+    "SharePointWebPart",
+    "SharePointFullPage"
+  ],
+  "supportsFullBleed": true,
+  "preconfiguredEntries": [
+    {
+      "groupId": "5c03119e-3074-46fd-976b-c60198311f70",
+      "group": {
+        "default": "Advanced"
+      },
+      "title": {
+        "default": "File Preview Admin"
+      },
+      "description": {
+        "default": "Manage tenant-wide file preview settings for supported engineering, process, and architecture files."
+      },
+      "officeFabricIconFontName": "Settings",
+      "properties": {
+        "configSiteUrl": ""
+      }
+    }
+  ]
+}

@@ -9,24 +9,23 @@ if (!appBaseUrl) {
 }
 
 const outputPath = process.argv[3] || "dist/file-handler.addins.json";
-const fileHandlerId = process.env.FILE_HANDLER_ID || crypto.randomUUID();
+const idFilePath = path.resolve("infra/file-handler-id.txt");
+const fileHandlerId = process.env.FILE_HANDLER_ID || readStableFileHandlerId(idFilePath);
 const icons = JSON.stringify({
-  svg: `${appBaseUrl}/assets/bpmn-file.svg`
+  svg: `${appBaseUrl}/assets/bpmn-file.svg`,
+  png1x: `${appBaseUrl}/assets/bpmn-file-32.png`,
+  "png1.5x": `${appBaseUrl}/assets/bpmn-file-48.png`,
+  png2x: `${appBaseUrl}/assets/bpmn-file-64.png`
 });
 
 const appIcons = JSON.stringify({
-  svg: `${appBaseUrl}/assets/bpmn-app.svg`
+  svg: `${appBaseUrl}/assets/bpmn-app.svg`,
+  png1x: `${appBaseUrl}/assets/bpmn-app-32.png`,
+  "png1.5x": `${appBaseUrl}/assets/bpmn-app-48.png`,
+  png2x: `${appBaseUrl}/assets/bpmn-app-64.png`
 });
 
 const actions = JSON.stringify([
-  {
-    type: "open",
-    url: `${appBaseUrl}/filehandler/open`,
-    availableOn: {
-      file: { extensions: [".bpmn"] },
-      web: {}
-    }
-  },
   {
     type: "preview",
     url: `${appBaseUrl}/filehandler/preview`,
@@ -65,3 +64,13 @@ function normalizeBaseUrl(value) {
   return value.replace(/\/+$/, "");
 }
 
+function readStableFileHandlerId(idPath) {
+  if (fs.existsSync(idPath)) {
+    return fs.readFileSync(idPath, "utf8").trim();
+  }
+
+  const generatedId = crypto.randomUUID();
+  fs.mkdirSync(path.dirname(idPath), { recursive: true });
+  fs.writeFileSync(idPath, `${generatedId}\n`, "utf8");
+  return generatedId;
+}

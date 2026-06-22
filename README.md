@@ -1,6 +1,6 @@
 # BPMN Microsoft 365 File Handler
 
-A Microsoft 365 File Handler 2.0 for opening, previewing, editing, and saving `.bpmn` files from SharePoint Online and OneDrive for Business.
+A Microsoft 365 File Handler 2.0 for previewing, editing, and saving `.bpmn` files from SharePoint Online and OneDrive for Business.
 
 ## Stack
 
@@ -40,4 +40,3 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 ## License Compliance
 
 See [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).
-

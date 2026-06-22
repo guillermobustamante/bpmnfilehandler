@@ -10,17 +10,23 @@
   "entraAppDisplayName": "BPMN File Handler",
   "entraApplicationObjectId": "fdcc308a-adbe-41fa-81e2-b09b3b76fa9d",
   "entraClientId": "cdba2558-f171-42c2-9ab5-531bfe57e9d1",
-  "fileHandlerId": "4c78b5e2-9ee5-4250-abec-b058654dfe66",
+  "fileHandlerId": "3e0b1939-1341-4620-96af-d140f5c506a5",
   "extension": ".bpmn",
-  "actions": ["open", "preview"],
+  "actions": ["preview"],
   "graphDelegatedScopes": ["User.Read", "Files.ReadWrite.All"],
-  "deploymentVerifiedAt": "2026-06-20T18:42:00Z",
-  "cacheRefreshStatus": "failed: SharePoint Online rejected Azure CLI token with invalidScope",
+  "deploymentVerifiedAt": "2026-06-20T21:43:22Z",
+  "cacheRefreshStatus": "pending: Entra app, service principal, manifest, and Azure runtime are preview-only on handler 3e0b1939-1341-4620-96af-d140f5c506a5, but all checked SharePoint/OneDrive drive/apps refresh URLs still return stale handler 4c78b5e2-9ee5-4250-abec-b058654dfe66 with open and preview actions",
   "notes": [
     "App Service health endpoint returned ok.",
     "Runtime config endpoint returned configured=true.",
     "File Handler POST endpoint returned expected 303 launch redirect.",
     "Entra app has tenant-wide delegated consent for User.Read and Files.ReadWrite.All.",
-    "Root SPA redirect URI is registered for redirect-based sign-in."
+    "Root SPA redirect URI is registered for redirect-based sign-in.",
+    "Launch context is persisted through redirect sign-in to avoid falling back to manual test mode.",
+    "File handler registration is configured for preview only so left-click uses the SharePoint/OneDrive in-page preview surface.",
+    "Original Entra app now owns a fresh preview-only FileHandler ID; the temporary preview app has no FileHandler addIns.",
+    "The running app has context-aware authentication: popup for embedded preview, redirect to app root for top-level launch.",
+    "Authentication hotfix deployed after /auth.html was found to be incorrectly used for top-level redirect sign-in.",
+    "Tenant-wide duplicate scan found no other FileHandler addIns."
   ]
 }

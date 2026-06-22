@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Elements xmlns="http://schemas.microsoft.com/sharepoint/">
+    <ClientSideComponentInstance
+        Title="File Preview app"
+        Location="ClientSideExtension.ListViewCommandSet.CommandBar"
+        ListTemplateId="101"
+        Properties="{&quot;showSettingsCommand&quot;:false}"
+        ComponentId="c3e13f04-c3e1-4b55-8fd5-d7557cd15752" />
+    <ClientSideComponentInstance
+        Title="File Preview app"
+        Location="ClientSideExtension.ListViewCommandSet.ContextMenu"
+        ListTemplateId="101"
+        Properties="{&quot;showSettingsCommand&quot;:false}"
+        ComponentId="c3e13f04-c3e1-4b55-8fd5-d7557cd15752" />
+    <ClientSideComponentInstance
+        Title="File Preview Tenant Admin"
+        Location="ClientSideExtension.ApplicationCustomizer"
+        Properties="{}"
+        ComponentId="6da1de09-f3e8-4d81-a60b-0bf2c8c65be4" />
+</Elements>

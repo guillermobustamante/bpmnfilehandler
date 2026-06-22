@@ -26,18 +26,20 @@ if (-not $FileHandlerId) {
     }
 }
 
-$fileIcon = @{ svg = "$normalizedBaseUrl/assets/bpmn-file.svg" } | ConvertTo-Json -Compress
-$appIcon = @{ svg = "$normalizedBaseUrl/assets/bpmn-app.svg" } | ConvertTo-Json -Compress
+$fileIcon = @{
+    svg = "$normalizedBaseUrl/assets/bpmn-file.svg"
+    png1x = "$normalizedBaseUrl/assets/bpmn-file-32.png"
+    "png1.5x" = "$normalizedBaseUrl/assets/bpmn-file-48.png"
+    png2x = "$normalizedBaseUrl/assets/bpmn-file-64.png"
+} | ConvertTo-Json -Compress
+$appIcon = @{
+    svg = "$normalizedBaseUrl/assets/bpmn-app.svg"
+    png1x = "$normalizedBaseUrl/assets/bpmn-app-32.png"
+    "png1.5x" = "$normalizedBaseUrl/assets/bpmn-app-48.png"
+    png2x = "$normalizedBaseUrl/assets/bpmn-app-64.png"
+} | ConvertTo-Json -Compress
 
-$actions = @(
-    @{
-        type = "open"
-        url = "$normalizedBaseUrl/filehandler/open"
-        availableOn = @{
-            file = @{ extensions = @(".bpmn") }
-            web = @{}
-        }
-    },
+$actionDefinitions = @(
     @{
         type = "preview"
         url = "$normalizedBaseUrl/filehandler/preview"
@@ -46,7 +48,9 @@ $actions = @(
             web = @{}
         }
     }
-) | ConvertTo-Json -Depth 20 -Compress
+)
+
+$actions = ConvertTo-Json -InputObject $actionDefinitions -Depth 20 -Compress
 
 $fileHandler = @{
     id = $FileHandlerId
@@ -68,7 +72,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $addIns = @()
 if ($current.addIns) {
-    $addIns += @($current.addIns | Where-Object { $_.id -ne $FileHandlerId })
+    $addIns += @($current.addIns | Where-Object { $_.type -ne "FileHandler" })
 }
 $addIns += $fileHandler
 
@@ -89,7 +93,6 @@ finally {
 [pscustomobject]@{
     fileHandlerId = $FileHandlerId
     appBaseUrl = $normalizedBaseUrl
-    actions = @("open", "preview")
+    actions = @("preview")
     extension = ".bpmn"
 } | ConvertTo-Json -Depth 5
-

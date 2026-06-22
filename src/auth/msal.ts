@@ -17,7 +17,7 @@ export function createMsalClient(config: PublicConfig): PublicClientApplication 
       redirectUri: window.location.origin
     },
     cache: {
-      cacheLocation: "sessionStorage"
+      cacheLocation: "localStorage"
     },
     system: {
       allowPlatformBroker: false

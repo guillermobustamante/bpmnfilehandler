@@ -64,7 +64,8 @@ export async function putDriveItemContent(
 
 export async function resolveDriveItemInput(
   input: string,
-  accessToken: string
+  accessToken: string,
+  allowedExtensions: string[] = [".bpmn"]
 ): Promise<{ itemUrl: string; metadata: DriveItemMetadata }> {
   const trimmed = input.trim();
   if (!trimmed) {
@@ -73,12 +74,12 @@ export async function resolveDriveItemInput(
 
   if (trimmed.startsWith("https://graph.microsoft.com/v1.0/")) {
     const metadata = await getDriveItemMetadata(trimmed, accessToken);
-    assertBpmnFile(metadata.name);
+    assertAllowedFile(metadata.name, allowedExtensions);
     return { itemUrl: trimmed, metadata };
   }
 
   const metadata = await resolveSharingUrl(trimmed, accessToken);
-  assertBpmnFile(metadata.name);
+  assertAllowedFile(metadata.name, allowedExtensions);
 
   const driveId = metadata.parentReference?.driveId;
   if (!driveId) {
@@ -153,10 +154,21 @@ async function resolveSharingUrl(webUrl: string, accessToken: string): Promise<D
   return (await response.json()) as DriveItemMetadata;
 }
 
-function assertBpmnFile(name: string): void {
-  if (!name.toLowerCase().endsWith(".bpmn")) {
-    throw new Error("The selected file is not a .bpmn file.");
+function assertAllowedFile(name: string, allowedExtensions: string[]): void {
+  const normalizedName = name.toLowerCase();
+  const normalizedExtensions = allowedExtensions.map((extension) => normalizeExtension(extension)).filter(Boolean);
+  if (!normalizedExtensions.some((extension) => normalizedName.endsWith(extension))) {
+    throw new Error(`The selected file is not supported by this viewer. Supported extension: ${normalizedExtensions.join(", ")}.`);
   }
+}
+
+function normalizeExtension(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed.startsWith(".") ? trimmed : `.${trimmed}`;
 }
 
 function base64UrlEncode(value: string): string {

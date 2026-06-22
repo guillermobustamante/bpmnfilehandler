@@ -1,0 +1,24 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "whichFolder": "subdir",
+    "solutionName": "spfx-bpmn-command-set",
+    "environment": "spo",
+    "packageManager": "npm",
+    "skipFeatureDeployment": true,
+    "useGulp": false,
+    "componentType": "extension",
+    "extensionType": "ListViewCommandSet",
+    "template": "none",
+    "componentName": "BpmnOpenCommandSet",
+    "componentDescription": "Open BPMN files in the BPMN viewer dialog",
+    "plusBeta": false,
+    "isCreatingSolution": true,
+    "nodeVersion": "22.19.0",
+    "sdksVersions": {},
+    "version": "1.23.0",
+    "libraryName": "spfx-bpmn-command-set",
+    "libraryId": "2ab9f11d-b745-4c32-b87a-460301fccf91",
+    "solutionShortDescription": "spfx-bpmn-command-set description",
+    "isDomainIsolated": false
+  }
+}

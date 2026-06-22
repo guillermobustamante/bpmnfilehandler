@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import BpmnModeler from "bpmn-js/lib/Modeler";
 import BpmnViewer from "bpmn-js/lib/NavigatedViewer";
-import { Download, ExternalLink, Maximize2, RefreshCw, Save, ZoomIn, ZoomOut } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, Maximize2, RefreshCw, Save, ZoomIn, ZoomOut } from "lucide-react";
 import type { LaunchContext } from "../App";
 import { getDriveItemContent, getDriveItemMetadata, putDriveItemContent, type DriveItemMetadata } from "../graph/driveItem";
 import { IconButton } from "./IconButton";
@@ -22,14 +22,16 @@ export function BpmnWorkspace({ getAccessToken, launch }: WorkspaceProps) {
   const [status, setStatus] = useState<string>("Loading");
   const [isDirty, setIsDirty] = useState(false);
   const [isBusy, setIsBusy] = useState(true);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
-  const editable = launch.action === "open";
+  const editable = launch.mode ? launch.mode === "modeler" : launch.action === "open" || launch.action === "preview";
   const itemUrl = launch.itemUrls[0];
 
   const loadFile = useCallback(async () => {
     setIsBusy(true);
     setError("");
     setStatus("Loading");
+    setWarnings([]);
 
     try {
       const token = await getAccessToken();
@@ -77,10 +79,12 @@ export function BpmnWorkspace({ getAccessToken, launch }: WorkspaceProps) {
 
     async function importDiagram() {
       try {
-        await instance.importXML(xml);
+        const importResult = (await instance.importXML(xml)) as { warnings?: Array<Error | { message?: string }> };
         if (disposed) {
           return;
         }
+
+        setWarnings(formatWarnings(importResult.warnings));
 
         const canvas = instance.get("canvas") as { zoom: (value: string | number, point?: string) => void };
         canvas.zoom("fit-viewport", "auto");
@@ -126,6 +130,7 @@ export function BpmnWorkspace({ getAccessToken, launch }: WorkspaceProps) {
       setMetadata(savedMetadata);
       setXml(result.xml || "");
       setIsDirty(false);
+      setWarnings([]);
       setStatus("Saved");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save BPMN file.");
@@ -134,6 +139,27 @@ export function BpmnWorkspace({ getAccessToken, launch }: WorkspaceProps) {
       setIsBusy(false);
     }
   }, [editable, getAccessToken, itemUrl, metadata]);
+
+  const validateDiagram = useCallback(async () => {
+    const instance = bpmnRef.current;
+    if (!instance) {
+      return;
+    }
+
+    setError("");
+    try {
+      const result = await instance.saveXML({ format: true });
+      if (!result.xml?.trim()) {
+        throw new Error("The diagram XML is empty.");
+      }
+
+      setWarnings([]);
+      setStatus(isDirty ? "Unsaved" : "Valid");
+    } catch (validationError) {
+      setError(validationError instanceof Error ? validationError.message : "Could not validate BPMN XML.");
+      setStatus("Error");
+    }
+  }, [isDirty]);
 
   const downloadFile = useCallback(async () => {
     const instance = bpmnRef.current;
@@ -160,7 +186,11 @@ export function BpmnWorkspace({ getAccessToken, launch }: WorkspaceProps) {
     <div className="shell">
       <header className="toolbar">
         <div className="file">
-          <strong className="file__name">{metadata?.name || "BPMN diagram"}</strong>
+          <span className="file__type">BPMN</span>
+          <div className="file__details">
+            <strong className="file__name">{metadata?.name || "BPMN diagram"}</strong>
+            {metadata ? <span className="file__meta">{formatMetadata(metadata)}</span> : null}
+          </div>
           <span className={`file__status ${status === "Error" ? "file__status--error" : ""}`}>{status}</span>
         </div>
         <div className="toolbar__actions">
@@ -172,6 +202,9 @@ export function BpmnWorkspace({ getAccessToken, launch }: WorkspaceProps) {
               <Save size={18} />
             </IconButton>
           ) : null}
+          <IconButton disabled={isBusy} label="Validate BPMN" onClick={() => void validateDiagram()}>
+            <CheckCircle2 size={18} />
+          </IconButton>
           <IconButton label="Download" onClick={() => void downloadFile()}>
             <Download size={18} />
           </IconButton>
@@ -193,6 +226,7 @@ export function BpmnWorkspace({ getAccessToken, launch }: WorkspaceProps) {
         </div>
       </header>
       {error ? <div className="error-bar">{error}</div> : null}
+      {warnings.length > 0 ? <div className="warning-bar">{warnings.join(" ")}</div> : null}
       <main className="canvas-wrap">
         <div ref={canvasRef} className="bpmn-canvas" />
       </main>
@@ -200,3 +234,37 @@ export function BpmnWorkspace({ getAccessToken, launch }: WorkspaceProps) {
   );
 }
 
+function formatWarnings(rawWarnings: Array<Error | { message?: string }> | undefined): string[] {
+  if (!rawWarnings?.length) {
+    return [];
+  }
+
+  return rawWarnings.slice(0, 3).map((warning) => warning.message || "BPMN import warning.");
+}
+
+function formatMetadata(metadata: DriveItemMetadata): string {
+  const parts: string[] = [];
+  if (metadata.lastModifiedDateTime) {
+    parts.push(`Modified ${new Date(metadata.lastModifiedDateTime).toLocaleString()}`);
+  }
+  if (metadata.lastModifiedBy?.user?.displayName) {
+    parts.push(`by ${metadata.lastModifiedBy.user.displayName}`);
+  }
+  if (typeof metadata.size === "number") {
+    parts.push(formatBytes(metadata.size));
+  }
+
+  return parts.join(" | ");
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  if (value < 1024 * 1024) {
+    return `${Math.round(value / 102.4) / 10} KB`;
+  }
+
+  return `${Math.round(value / 1024 / 102.4) / 10} MB`;
+}
