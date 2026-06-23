@@ -1,5 +1,10 @@
 node_modules/
 dist/
+lib/
+lib-commonjs/
+temp/
+release/
+jest-output/
 .env
 .env.local
 .DS_Store
@@ -8,4 +13,5 @@ dist/
 .vite/
 coverage/
 infra/file-handler-id.txt
-
+**/infra/file-handler-id.txt
+spfx-bpmn-command-set/

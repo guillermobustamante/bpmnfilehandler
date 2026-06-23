@@ -1,43 +1,33 @@
-# BPMN and DrawIO Microsoft 365 File Handler
+# BPMN File Preview Workspace
 
-A Microsoft 365 File Handler 2.0 and SPFx preview package for opening `.bpmn` and `.drawio` files from SharePoint Online and OneDrive for Business.
+This repository is split into two separate projects with different compliance boundaries.
 
-## Stack
+## Projects
 
-- Azure App Service, Node.js 22, Express
-- React, TypeScript, Vite
-- Microsoft Entra ID and MSAL browser auth
-- Microsoft Graph delegated file access
-- bpmn-js viewer/modeler
-- diagrams.net embedded renderer for DrawIO files
+### SPFx SharePoint in-page preview
 
-## Local Development
+Path: `spfx-sharepoint-in-page-preview/`
+
+This is the AppSource candidate package. It contains the SharePoint Framework command set, application customizer, admin web part, SharePoint assets, package manifest, and AppSource audit notes. It should remain independent from the Microsoft 365 File Handler hosted app.
 
 ```powershell
+cd spfx-sharepoint-in-page-preview
+npm install
+npm run build
+```
+
+### Microsoft 365 File Handler / hosted Azure app
+
+Path: `microsoft-365-file-handler-hosted-azure-app/`
+
+This is the original hosted File Handler implementation. It contains the Azure App Service Node/Express server, React/Vite app, MSAL browser auth, Microsoft Graph file access, Entra app registration scripts, and File Handler manifest tooling.
+
+```powershell
+cd microsoft-365-file-handler-hosted-azure-app
 npm install
 npm run dev
 ```
 
-For local Vite development:
+## Audit
 
-```powershell
-npm run dev
-npx vite --host 127.0.0.1
-```
-
-Set `.env` values from `.env.example` before connecting to Microsoft 365.
-
-## Build
-
-```powershell
-npm run typecheck
-npm run build
-```
-
-## Deployment
-
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-
-## License Compliance
-
-See [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).
+The AppSource compliance audit is saved at `spfx-sharepoint-in-page-preview/docs/APPSOURCE_COMPLIANCE_AUDIT.md`.
