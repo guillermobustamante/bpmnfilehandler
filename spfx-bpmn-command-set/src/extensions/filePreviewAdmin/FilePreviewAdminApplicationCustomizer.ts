@@ -133,8 +133,7 @@ export default class FilePreviewAdminApplicationCustomizer extends BaseApplicati
     this.previewLauncherElement = document.createElement('button');
     this.previewLauncherElement.className = 'bpf-file-preview-launcher';
     this.previewLauncherElement.type = 'button';
-    this.previewLauncherElement.title = 'Open the selected file with the SharePoint-hosted File Preview app';
-    this.previewLauncherElement.textContent = 'File Preview app';
+    this.updatePreviewLauncherText();
     this.previewLauncherElement.addEventListener('click', () => {
       this.openSelectedFilePreview().catch((error: unknown) => {
         Dialog.alert(error instanceof Error ? error.message : 'Could not open the selected file.').catch(() => undefined);
@@ -147,6 +146,16 @@ export default class FilePreviewAdminApplicationCustomizer extends BaseApplicati
   private removePreviewLauncher(): void {
     this.previewLauncherElement?.remove();
     this.previewLauncherElement = undefined;
+  }
+
+  private updatePreviewLauncherText(): void {
+    if (!this.previewLauncherElement) {
+      return;
+    }
+
+    const label = getPreviewLauncherLabel(this.selectedFile);
+    this.previewLauncherElement.textContent = label;
+    this.previewLauncherElement.title = `${label} with the SharePoint preview viewer`;
   }
 
   private openFromQueryString(): void {
@@ -220,6 +229,7 @@ export default class FilePreviewAdminApplicationCustomizer extends BaseApplicati
 
     if (selectedFile) {
       this.renderPreviewLauncher();
+      this.updatePreviewLauncherText();
     } else {
       this.removePreviewLauncher();
     }
@@ -514,9 +524,21 @@ function getCandidateExtensionSettings(fileName: string): IFileExtensionSettings
     displayName: `${extension.toUpperCase()} file`,
     enabled: true,
     extension,
-    mode: extension === '.bpmn' ? 'modeler' : 'viewer',
+    mode: extension === '.bpmn' || extension === '.drawio' ? 'modeler' : 'viewer',
     renderer: extension === '.drawio' ? 'diagrams-net-embed' : extension === '.bpmn' ? 'bpmn-js' : 'coming-soon'
   };
+}
+
+function getPreviewLauncherLabel(selectedFile: { extensionSettings: IFileExtensionSettings } | undefined): string {
+  const extension = selectedFile?.extensionSettings.extension;
+  if (extension === '.drawio') {
+    return 'Preview DrawIO';
+  }
+  if (extension === '.bpmn') {
+    return 'Preview BPMN';
+  }
+
+  return 'Preview file';
 }
 
 function getAdminErrorMessage(error: unknown): string {

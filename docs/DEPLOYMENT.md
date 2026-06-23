@@ -25,7 +25,9 @@ The script creates:
 - Entra ID single-page application registration.
 - Delegated Microsoft Graph scopes: `User.Read`, `Files.ReadWrite.All`.
 - Tenant admin consent for those delegated scopes.
-- Microsoft 365 File Handler 2.0 `addIns` registration for `.bpmn`.
+- Microsoft 365 File Handler 2.0 `addIns` registration for `.bpmn` and `.drawio`.
+- Per-extension icon URLs for BPMN and DrawIO file/app icons.
+- Native File Handler `preview` and `open` actions, so direct file-name click and the SharePoint/OneDrive Open menu can route to the handler.
 - Tenant-wide File Handler cache refresh.
 
 The App Service deployment package is built locally and includes the compiled app plus runtime dependencies. Remote Oryx build is disabled for deterministic deployment.
@@ -60,7 +62,8 @@ Add `-SkipAdminConsent` only if the tenant requires consent to be granted in a s
 ```powershell
 .\scripts\register-file-handler.ps1 `
   -ApplicationObjectId "<app-registration-object-id>" `
-  -AppBaseUrl "https://<app-name>.azurewebsites.net"
+  -AppBaseUrl "https://<app-name>.azurewebsites.net" `
+  -Extensions ".bpmn",".drawio"
 ```
 
 4. Refresh the tenant File Handler cache:

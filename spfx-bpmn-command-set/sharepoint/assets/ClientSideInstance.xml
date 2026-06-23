@@ -1,15 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Elements xmlns="http://schemas.microsoft.com/sharepoint/">
     <ClientSideComponentInstance
-        Title="File Preview app"
+        Title="Open file"
         Location="ClientSideExtension.ListViewCommandSet.CommandBar"
         ListTemplateId="101"
+        Sequence="1"
         Properties="{&quot;showSettingsCommand&quot;:false}"
         ComponentId="c3e13f04-c3e1-4b55-8fd5-d7557cd15752" />
     <ClientSideComponentInstance
-        Title="File Preview app"
+        Title="Open file"
         Location="ClientSideExtension.ListViewCommandSet.ContextMenu"
         ListTemplateId="101"
+        Sequence="1"
         Properties="{&quot;showSettingsCommand&quot;:false}"
         ComponentId="c3e13f04-c3e1-4b55-8fd5-d7557cd15752" />
     <ClientSideComponentInstance

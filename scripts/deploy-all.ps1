@@ -11,7 +11,9 @@ param(
 
     [string]$AppName = "bpmn-file-handler-$((New-Guid).Guid.Substring(0, 8))",
 
-    [string]$DisplayName = "BPMN File Handler"
+    [string]$DisplayName = "BPMN File Handler",
+
+    [string[]]$Extensions = @(".bpmn", ".drawio")
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,7 +43,8 @@ $deployment = & "$PSScriptRoot\deploy-azure-appservice.ps1" @deployArgs | Conver
 Write-Host "Registering Microsoft 365 File Handler..."
 $handler = & "$PSScriptRoot\register-file-handler.ps1" `
     -ApplicationObjectId $entra.objectId `
-    -AppBaseUrl $deployment.appBaseUrl | ConvertFrom-Json
+    -AppBaseUrl $deployment.appBaseUrl `
+    -Extensions $Extensions | ConvertFrom-Json
 
 Write-Host "Refreshing tenant file handler cache..."
 $refresh = $null

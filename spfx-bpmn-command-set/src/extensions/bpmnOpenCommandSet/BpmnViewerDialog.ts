@@ -2,7 +2,9 @@ import { SPHttpClient } from '@microsoft/sp-http';
 import { BaseDialog, type IDialogConfiguration } from '@microsoft/sp-dialog';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import BpmnViewer from 'bpmn-js/lib/NavigatedViewer';
+import 'bpmn-js/dist/assets/bpmn-js.css';
 import 'bpmn-js/dist/assets/diagram-js.css';
+import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
 import type { IFileExtensionSettings } from './previewSettings';
 import { SharePointFileService, type ISharePointFileMetadata } from './sharePointFileService';
 
@@ -12,8 +14,13 @@ export class BpmnViewerDialog extends BaseDialog {
   private bpmnInstance: BpmnInstance | undefined;
   private canvasElement: HTMLElement | undefined;
   private fileService: SharePointFileService;
+  private hostElement: HTMLElement | undefined;
   private isDirty: boolean = false;
   private metadata: ISharePointFileMetadata | undefined;
+  private readonly onWindowResizeBound = (): void => {
+    this.applyDialogChrome();
+    this.fitDiagram();
+  };
   private resizeObserver: ResizeObserver | undefined;
   private xml: string = '';
 
@@ -29,7 +36,8 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   public render(): void {
-    this.domElement.innerHTML = `
+    const root = this.ensureHostElement();
+    root.innerHTML = `
       <div class="bpmn-dialog">
         <div class="bpmn-dialog__header">
           <div class="bpmn-dialog__title">
@@ -72,7 +80,7 @@ export class BpmnViewerDialog extends BaseDialog {
 
     this.applyDialogChrome();
     this.scheduleChromeRefresh();
-    this.canvasElement = this.domElement.querySelector('[data-role="canvas"]') as HTMLElement | undefined;
+    this.canvasElement = this.rootElement.querySelector('[data-role="canvas"]') as HTMLElement | undefined;
     this.wireEvents();
     this.load().catch((error: unknown) => {
       this.setError(error instanceof Error ? error.message : 'Could not open the selected file.');
@@ -87,9 +95,12 @@ export class BpmnViewerDialog extends BaseDialog {
 
   protected onAfterClose(): void {
     this.exitFullscreen().catch(() => undefined);
+    window.removeEventListener('resize', this.onWindowResizeBound);
     this.resizeObserver?.disconnect();
     this.resizeObserver = undefined;
     this.destroyRenderer();
+    this.hostElement?.remove();
+    this.hostElement = undefined;
     this.domElement.innerHTML = '';
     super.onAfterClose();
   }
@@ -221,100 +232,219 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private wireEvents(): void {
-    this.domElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+    this.rootElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       this.load().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not reload file.'));
     });
-    this.domElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+    this.rootElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
       this.save().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not save file.'));
     });
-    this.domElement.querySelector('[data-action="validate"]')?.addEventListener('click', () => {
+    this.rootElement.querySelector('[data-action="validate"]')?.addEventListener('click', () => {
       this.validate().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not validate file.'));
     });
-    this.domElement.querySelector('[data-action="download"]')?.addEventListener('click', () => {
+    this.rootElement.querySelector('[data-action="download"]')?.addEventListener('click', () => {
       this.download().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not download file.'));
     });
-    this.domElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+    this.rootElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
       this.toggleFullscreen().catch((error: unknown) =>
         this.setError(error instanceof Error ? error.message : 'Could not open full screen.')
       );
     });
     document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
-    this.domElement.querySelector('[data-action="zoom-out"]')?.addEventListener('click', () => this.zoom(0.8));
-    this.domElement.querySelector('[data-action="zoom-in"]')?.addEventListener('click', () => this.zoom(1.2));
-    this.domElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.zoom('fit-viewport'));
-    this.domElement.querySelector('.bpmn-dialog__close')?.addEventListener('click', () => {
+    this.rootElement.querySelector('[data-action="zoom-out"]')?.addEventListener('click', () => this.zoom(0.8));
+    this.rootElement.querySelector('[data-action="zoom-in"]')?.addEventListener('click', () => this.zoom(1.2));
+    this.rootElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.zoom('fit-viewport'));
+    this.rootElement.querySelector('.bpmn-dialog__close')?.addEventListener('click', () => {
       this.close().catch(() => undefined);
     });
+    window.addEventListener('resize', this.onWindowResizeBound);
   }
 
   private applyDialogChrome(): void {
+    setImportantStyle(this.rootElement, {
+      background: '#ffffff',
+      bottom: '0',
+      boxSizing: 'border-box',
+      height: 'auto',
+      inset: '0',
+      left: '0',
+      margin: '0',
+      maxHeight: 'none',
+      maxWidth: 'none',
+      minHeight: '0',
+      minWidth: '0',
+      overflow: 'hidden',
+      position: 'fixed',
+      right: '0',
+      top: '0',
+      width: 'auto',
+      zIndex: '1000002'
+    });
+    tagPreviewAncestors(this.domElement);
+
+    const modal = this.domElement.closest('.ms-Modal') as HTMLElement | null;
+    if (modal) {
+      setImportantStyle(modal, {
+        bottom: '0',
+        display: 'block',
+        height: '100%',
+        inset: '0',
+        maxHeight: '100%',
+        maxWidth: '100%',
+        minHeight: '100%',
+        minWidth: '100%',
+        overflow: 'hidden',
+        position: 'fixed',
+        right: '0',
+        top: '0',
+        width: '100%'
+      });
+    }
+
+    const focusTrap = this.domElement.closest('[data-is-focus-trap-zone="true"]') as HTMLElement | null;
+    if (focusTrap) {
+      setImportantStyle(focusTrap, {
+        height: '100%',
+        maxHeight: '100%',
+        maxWidth: '100%',
+        minHeight: '100%',
+        minWidth: '100%',
+        width: '100%'
+      });
+    }
+
     const dialogMain = this.domElement.closest('.ms-Dialog-main') as HTMLElement | null;
     if (dialogMain) {
       dialogMain.classList.add('bpf-preview-dialog-main');
-      dialogMain.style.inset = '0';
-      dialogMain.style.margin = '0';
-      dialogMain.style.maxHeight = '100vh';
-      dialogMain.style.maxWidth = '100vw';
-      dialogMain.style.position = 'fixed';
-      dialogMain.style.transform = 'none';
-      dialogMain.style.width = '100vw';
-      dialogMain.style.height = '100vh';
-      dialogMain.style.borderRadius = '0';
-      dialogMain.style.overflow = 'hidden';
+      setImportantStyle(dialogMain, {
+        borderRadius: '0',
+        bottom: '0',
+        boxSizing: 'border-box',
+        height: 'auto',
+        inset: '0',
+        left: '0',
+        margin: '0',
+        maxHeight: 'none',
+        maxWidth: 'none',
+        minHeight: '0',
+        minWidth: '0',
+        overflow: 'hidden',
+        position: 'fixed',
+        right: '0',
+        top: '0',
+        transform: 'none',
+        width: 'auto'
+      });
     }
 
     const dialogInner = this.domElement.closest('.ms-Dialog-inner') as HTMLElement | null;
     if (dialogInner) {
-      dialogInner.style.height = '100%';
-      dialogInner.style.padding = '0';
+      setImportantStyle(dialogInner, {
+        height: '100%',
+        maxHeight: '100%',
+        padding: '0'
+      });
     }
 
     const dialogContent = this.domElement.closest('.ms-Dialog-content') as HTMLElement | null;
     if (dialogContent) {
-      dialogContent.style.height = '100%';
+      setImportantStyle(dialogContent, {
+        height: '100%',
+        maxHeight: '100%'
+      });
     }
 
     const modalScroll = this.domElement.closest('.ms-Modal-scrollableContent') as HTMLElement | null;
     if (modalScroll) {
-      modalScroll.style.height = '100%';
-      modalScroll.style.maxHeight = '100vh';
-      modalScroll.style.overflow = 'hidden';
+      setImportantStyle(modalScroll, {
+        height: '100%',
+        maxHeight: '100%',
+        overflow: 'hidden'
+      });
     }
 
     const layerContent = this.domElement.closest('.ms-Layer-content') as HTMLElement | null;
     if (layerContent) {
-      layerContent.style.height = '100vh';
-      layerContent.style.width = '100vw';
+      setImportantStyle(layerContent, {
+        bottom: '0',
+        height: '100%',
+        inset: '0',
+        left: '0',
+        maxHeight: '100%',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        position: 'fixed',
+        right: '0',
+        top: '0',
+        width: '100%'
+      });
     }
 
-    this.domElement.style.height = '100%';
-    this.domElement.style.overflow = 'hidden';
+    this.domElement.style.display = 'none';
     applyPreviewOverlayChrome();
 
-    if (this.domElement.querySelector('style[data-bpf-preview-style="bpmn"]')) {
+    if (this.rootElement.querySelector('style[data-bpf-preview-style="bpmn"]')) {
       return;
     }
 
     const style = document.createElement('style');
     style.dataset.bpfPreviewStyle = 'bpmn';
     style.textContent = `
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main {
-        border-radius: 0 !important;
-        height: 100dvh !important;
+      .ms-Layer [data-bpf-preview-layer="true"],
+      .ms-Layer [data-bpf-preview-modal="true"],
+      .ms-Layer [data-bpf-preview-focus-trap="true"] {
+        bottom: 0 !important;
+        height: 100% !important;
         inset: 0 !important;
+        left: 0 !important;
         margin: 0 !important;
-        max-height: 100dvh !important;
-        max-width: 100dvw !important;
-        min-height: 100dvh !important;
+        max-height: none !important;
+        max-width: none !important;
+        min-height: 0 !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
         position: fixed !important;
+        right: 0 !important;
+        top: 0 !important;
         transform: none !important;
-        width: 100dvw !important;
+        width: auto !important;
+      }
+      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main {
+        bottom: 0 !important;
+        box-sizing: border-box !important;
+        border-radius: 0 !important;
+        height: auto !important;
+        inset: 0 !important;
+        left: 0 !important;
+        margin: 0 !important;
+        max-height: none !important;
+        max-width: none !important;
+        min-height: 0 !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        position: fixed !important;
+        right: 0 !important;
+        top: 0 !important;
+        transform: none !important;
+        width: auto !important;
+      }
+      .ms-Layer .ms-Layer-content:has(.bpf-preview-dialog-main) {
+        bottom: 0 !important;
+        height: auto !important;
+        inset: 0 !important;
+        left: 0 !important;
+        max-height: none !important;
+        max-width: none !important;
+        overflow: hidden !important;
+        position: fixed !important;
+        right: 0 !important;
+        top: 0 !important;
+        width: auto !important;
       }
       .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Dialog-inner,
       .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Dialog-content,
       .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Modal-scrollableContent {
         height: 100% !important;
-        max-height: 100dvh !important;
+        max-height: 100% !important;
         overflow: hidden !important;
         padding: 0 !important;
       }
@@ -330,10 +460,10 @@ export class BpmnViewerDialog extends BaseDialog {
         display: flex;
         flex-direction: column;
         font-family: "Segoe UI", Arial, sans-serif;
-        height: 100dvh;
-        min-height: 100dvh;
+        height: 100%;
+        min-height: 0;
         overflow: hidden;
-        width: 100dvw;
+        width: 100%;
       }
       .bpmn-dialog__header {
         align-items: center;
@@ -435,7 +565,7 @@ export class BpmnViewerDialog extends BaseDialog {
       .bpmn-dialog__canvas {
         background: #ffffff;
         flex: 1 1 auto;
-        height: calc(100dvh - 52px);
+        height: auto;
         min-height: 0;
         overflow: hidden;
         width: 100%;
@@ -453,13 +583,14 @@ export class BpmnViewerDialog extends BaseDialog {
         .bpmn-dialog__header {
           align-items: stretch;
           flex-direction: column;
+          flex-basis: auto;
         }
         .bpmn-dialog__actions {
           justify-content: flex-start;
         }
       }
     `;
-    this.domElement.prepend(style);
+    this.rootElement.prepend(style);
   }
 
   private scheduleChromeRefresh(): void {
@@ -474,7 +605,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private async toggleFullscreen(): Promise<void> {
-    const host = this.domElement.closest('.ms-Dialog-main') as HTMLElement | null;
+    const host = this.rootElement;
     if (!host) {
       return;
     }
@@ -496,7 +627,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private updateFullscreenButton(): void {
-    const button = this.domElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
+    const button = this.rootElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
     if (!button) {
       return;
     }
@@ -520,7 +651,7 @@ export class BpmnViewerDialog extends BaseDialog {
 
   private setBusy(isBusy: boolean, status: string): void {
     this.setStatus(status);
-    this.domElement.querySelectorAll('.bpmn-dialog__button').forEach((button) => {
+    this.rootElement.querySelectorAll('.bpmn-dialog__button').forEach((button) => {
       const typedButton = button as HTMLButtonElement;
       if (typedButton.dataset.action === 'save') {
         typedButton.disabled = isBusy || !this.isDirty || !this.isEditable();
@@ -531,7 +662,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setStatus(status: string): void {
-    const statusElement = this.domElement.querySelector('[data-role="status"]') as HTMLElement | null;
+    const statusElement = this.rootElement.querySelector('[data-role="status"]') as HTMLElement | null;
     if (statusElement) {
       statusElement.textContent = status;
     }
@@ -547,7 +678,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setMessage(message: string): void {
-    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.rootElement.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -558,7 +689,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setError(message: string): void {
-    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.rootElement.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -569,7 +700,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private renderMetadata(): void {
-    const nameElement = this.domElement.querySelector('.bpmn-dialog__name') as HTMLElement | null;
+    const nameElement = this.rootElement.querySelector('.bpmn-dialog__name') as HTMLElement | null;
     if (!nameElement || !this.metadata) {
       return;
     }
@@ -586,10 +717,28 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private updateSaveButton(): void {
-    const saveButton = this.domElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
+    const saveButton = this.rootElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
     if (saveButton) {
       saveButton.disabled = !this.isDirty || !this.isEditable();
     }
+  }
+
+  private get rootElement(): HTMLElement {
+    return this.hostElement || this.domElement;
+  }
+
+  private ensureHostElement(): HTMLElement {
+    if (this.hostElement) {
+      return this.hostElement;
+    }
+
+    const hostElement = document.createElement('div');
+    hostElement.className = 'bpf-preview-portal bpf-preview-portal--bpmn';
+    document.body.appendChild(hostElement);
+    this.hostElement = hostElement;
+    this.domElement.innerHTML = '';
+    this.domElement.style.display = 'none';
+    return hostElement;
   }
 }
 
@@ -632,6 +781,25 @@ function renderIcon(name: string): string {
   };
 
   return `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths[name] || ''}</svg>`;
+}
+
+function tagPreviewAncestors(root: HTMLElement): void {
+  (root.closest('.ms-Layer-content') as HTMLElement | null)?.setAttribute('data-bpf-preview-layer', 'true');
+  (root.closest('.ms-Modal') as HTMLElement | null)?.setAttribute('data-bpf-preview-modal', 'true');
+  (root.closest('[data-is-focus-trap-zone="true"]') as HTMLElement | null)?.setAttribute(
+    'data-bpf-preview-focus-trap',
+    'true'
+  );
+}
+
+function setImportantStyle(element: HTMLElement, styles: Record<string, string>): void {
+  Object.keys(styles).forEach((propertyName) => {
+    element.style.setProperty(toCssPropertyName(propertyName), styles[propertyName], 'important');
+  });
+}
+
+function toCssPropertyName(propertyName: string): string {
+  return propertyName.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
 }
 
 function applyPreviewOverlayChrome(): void {

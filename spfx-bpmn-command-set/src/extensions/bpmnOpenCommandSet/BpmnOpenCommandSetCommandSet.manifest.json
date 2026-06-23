@@ -17,7 +17,7 @@
 
   "items": {
     "OPEN_BPMN": {
-      "title": { "default": "File Preview app" },
+      "title": { "default": "Open file" },
       "type": "command"
     },
     "BPMN_SETTINGS": {

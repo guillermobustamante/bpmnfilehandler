@@ -6,8 +6,8 @@ import {
   type AccountInfo
 } from "@azure/msal-browser";
 import { LogIn, TriangleAlert } from "lucide-react";
-import { BpmnWorkspace } from "./components/BpmnWorkspace";
 import { DirectLauncher } from "./components/DirectLauncher";
+import { FileWorkspace } from "./components/FileWorkspace";
 import { IconButton } from "./components/IconButton";
 import { createMsalClient, type PublicConfig } from "./auth/msal";
 import { ManualLauncher } from "./components/ManualLauncher";
@@ -277,7 +277,7 @@ export function App() {
   }
 
   if (state.launch) {
-    return <BpmnWorkspace getAccessToken={getAccessToken} launch={state.launch} />;
+    return <FileWorkspace getAccessToken={getAccessToken} launch={state.launch} />;
   }
 
   if (state.directLaunch) {

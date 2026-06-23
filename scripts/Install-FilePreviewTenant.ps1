@@ -13,7 +13,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$AppVersion = "1.4.0"
+$AppVersion = "1.4.14"
 $ClientID = "a53c4564-ac7f-48c8-ab09-c447875beb17"
 $SolutionPackageName = "spfx-bpmn-command-set.sppkg"
 $CommandSetComponentId = "c3e13f04-c3e1-4b55-8fd5-d7557cd15752"
@@ -24,7 +24,7 @@ $ConfigItemTitle = "Configuration"
 $AdminPageTitle = "File Preview Admin"
 
 $DefaultSettingsJson = @'
-{"appBaseUrl":"","extensions":[{"displayName":"BPMN process diagram","enabled":true,"extension":".bpmn","mode":"modeler","renderer":"bpmn-js"},{"displayName":"JT 3D model","enabled":false,"extension":".jt","mode":"viewer","renderer":"coming-soon"},{"displayName":"diagrams.net drawing","enabled":false,"extension":".drawio","mode":"viewer","renderer":"diagrams-net-embed"},{"displayName":"STEP CAD model","enabled":false,"extension":".step","mode":"viewer","renderer":"coming-soon"}],"fileHandlerEnabled":false,"license":{"declaredUserCount":20,"freeUserLimit":20,"key":"","tier":"Free"},"schemaVersion":1}
+{"appBaseUrl":"","extensions":[{"displayName":"BPMN process diagram","enabled":true,"extension":".bpmn","mode":"modeler","renderer":"bpmn-js"},{"displayName":"JT 3D model","enabled":false,"extension":".jt","mode":"viewer","renderer":"coming-soon"},{"displayName":"diagrams.net drawing","enabled":false,"extension":".drawio","mode":"modeler","renderer":"diagrams-net-embed"},{"displayName":"STEP CAD model","enabled":false,"extension":".step","mode":"viewer","renderer":"coming-soon"}],"fileHandlerEnabled":false,"license":{"declaredUserCount":20,"freeUserLimit":20,"key":"","tier":"Free"},"schemaVersion":1}
 '@
 
 function Ensure-Module {
@@ -135,7 +135,7 @@ function Ensure-TenantWideCommand {
   Add-ListItemValue -Values $tenantWideValues -FieldName $propertiesField -Value $componentProperties
   Add-ListItemValue -Values $tenantWideValues -FieldName $locationField -Value "ClientSideExtension.ListViewCommandSet.CommandBar"
   Add-ListItemValue -Values $tenantWideValues -FieldName $listTemplateField -Value 101
-  Add-ListItemValue -Values $tenantWideValues -FieldName $sequenceField -Value 10000
+  Add-ListItemValue -Values $tenantWideValues -FieldName $sequenceField -Value 1
   Add-ListItemValue -Values $tenantWideValues -FieldName $disabledField -Value $false
 
   if ($tenantWideItems.Count -gt 0) {

@@ -13,7 +13,9 @@ type LaunchContext = {
   client?: string;
   userId?: string;
   domainHint?: string;
+  extension?: string;
   itemUrls: string[];
+  mode?: "modeler" | "viewer";
   createdAt: string;
   expiresAt: string;
 };
@@ -48,7 +50,7 @@ app.use(
           "https://*.sharepoint-df.com",
           "https://*.1drv.com"
         ],
-        "frame-src": ["'self'", "https://login.microsoftonline.com"],
+        "frame-src": ["'self'", "https://login.microsoftonline.com", "https://embed.diagrams.net"],
         "frame-ancestors": [
           "'self'",
           "https://*.sharepoint.com",
@@ -112,7 +114,7 @@ app.post(
     }
 
     if (itemUrls.length !== 1) {
-      res.status(400).send("This handler currently supports one BPMN file at a time.");
+      res.status(400).send("This handler currently supports one file at a time.");
       return;
     }
 
@@ -125,7 +127,9 @@ app.post(
       client: readFormValue(req.body.client),
       userId: readFormValue(req.body.userId),
       domainHint: readFormValue(req.body.domainHint),
+      extension: normalizeExtension(readFormValue(req.query.extension)),
       itemUrls,
+      mode: readMode(req.query.mode),
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + launchTtlMs).toISOString()
     };
@@ -188,6 +192,20 @@ function readFormValue(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readMode(value: unknown): "modeler" | "viewer" | undefined {
+  const mode = readFormValue(value);
+  return mode === "modeler" || mode === "viewer" ? mode : undefined;
+}
+
+function normalizeExtension(value: string | undefined): string | undefined {
+  const trimmed = value?.trim().toLowerCase() || "";
+  if (!trimmed) {
+    return undefined;
+  }
+
+  return trimmed.startsWith(".") ? trimmed : `.${trimmed}`;
 }
 
 function parseItemUrls(itemsValue: unknown): string[] {

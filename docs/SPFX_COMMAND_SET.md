@@ -4,7 +4,7 @@ This SPFx package provides the SharePoint-first preview experience for engineeri
 
 The package includes:
 
-- An `Open preview` command when one enabled and available file extension is selected.
+- An extension-specific `Open BPMN` or `Open DrawIO` command when one enabled and available file extension is selected.
 - A same-page SharePoint dialog for supported files.
 - A bundled `bpmn-js` renderer for BPMN files.
 - Optional `.drawio` preview through the diagrams.net embedded renderer.
@@ -57,7 +57,7 @@ The tenant root launcher is the AppSource-friendly first-run path. The settings 
       "displayName": "diagrams.net drawing",
       "enabled": false,
       "renderer": "diagrams-net-embed",
-      "mode": "viewer"
+      "mode": "modeler"
     },
     {
       "extension": ".jt",
@@ -126,7 +126,7 @@ Use this SharePoint debug URL to test the command set and settings command:
 https://evolvegs.sharepoint.com/sites/EvolveGSAIHub/Shared%20Documents/Forms/AllItems.aspx?debugManifestsFile=https%3A%2F%2Flocalhost%3A4321%2Ftemp%2Fbuild%2Fmanifests.js&noredir=true&loadSPFX=true&customActions=%7B%22c3e13f04-c3e1-4b55-8fd5-d7557cd15752%22%3A%7B%22location%22%3A%22ClientSideExtension.ListViewCommandSet.CommandBar%22%2C%22properties%22%3A%7B%22showSettingsCommand%22%3Atrue%7D%7D%7D
 ```
 
-When prompted by SharePoint, load debug scripts. Select one `.bpmn` file and use `Open preview`. To test `.drawio`, enable it first in `File Preview Admin`, then select one `.drawio` file and use `Open preview`.
+When prompted by SharePoint, load debug scripts. Select one `.bpmn` file and use `Open BPMN`. To test `.drawio`, enable it first in `File Preview Admin`, then select one `.drawio` file and use `Open DrawIO`.
 
 ## Build
 
@@ -162,13 +162,13 @@ The launcher initializes missing configuration assets automatically and preserve
 
 ## Upgrade
 
-The current package version is `1.4.0.0`.
+The current package version is `1.4.14.0`.
 
 To upgrade:
 
 1. Upload `spfx-bpmn-command-set/sharepoint/solution/spfx-bpmn-command-set.sppkg` to the tenant App Catalog.
 2. Choose replace when SharePoint detects the existing package.
-3. Confirm the App Catalog shows version `1.4.0.0`.
+3. Confirm the App Catalog shows version `1.4.14.0`.
 4. Deploy the package tenant-wide.
 5. Open the tenant root site and use the `File Preview Admin` launcher.
 6. Confirm settings still reflect the previous configuration.

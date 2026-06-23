@@ -1,6 +1,6 @@
-# BPMN Microsoft 365 File Handler
+# BPMN and DrawIO Microsoft 365 File Handler
 
-A Microsoft 365 File Handler 2.0 for previewing, editing, and saving `.bpmn` files from SharePoint Online and OneDrive for Business.
+A Microsoft 365 File Handler 2.0 and SPFx preview package for opening `.bpmn` and `.drawio` files from SharePoint Online and OneDrive for Business.
 
 ## Stack
 
@@ -9,6 +9,7 @@ A Microsoft 365 File Handler 2.0 for previewing, editing, and saving `.bpmn` fil
 - Microsoft Entra ID and MSAL browser auth
 - Microsoft Graph delegated file access
 - bpmn-js viewer/modeler
+- diagrams.net embedded renderer for DrawIO files
 
 ## Local Development
 

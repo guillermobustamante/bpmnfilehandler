@@ -73,17 +73,17 @@ export class PreviewSettingsDialog extends BaseDialog {
               <input data-field="fileHandlerEnabled" type="checkbox" ${this.draftSettings.fileHandlerEnabled ? 'checked' : ''} />
               <span>Native File Handler has been registered by an admin</span>
             </label>
-            <p class="bpf-admin__hint">The SharePoint command named "File Preview app" is self-contained in this SPFx package and does not use Azure. Native File Handler registration is optional and controls Microsoft's built-in file preview/open flow, which can still route to an external endpoint if an old Entra add-in remains registered.</p>
+            <p class="bpf-admin__hint">The SharePoint command named "Open BPMN" or "Open DrawIO" is self-contained in this SPFx package and does not use Azure. Native File Handler registration is optional and controls Microsoft's built-in file preview/open flow, which can still route to an external endpoint if an old Entra add-in remains registered.</p>
           </section>
 
           <section class="bpf-admin__section">
             <h3>How users should open files</h3>
-            <p class="bpf-admin__hint">Select one supported file, then use the command bar or item menu action named "File Preview app". Do not use Microsoft's built-in file-name click preview to test this app; SharePoint's native previewer can still show "Can't preview this file" for extensions such as .drawio because that previewer is not controlled by SPFx.</p>
+            <p class="bpf-admin__hint">Select one supported file, then use the command bar or item menu action named "Open BPMN" or "Open DrawIO". Use native File Handler registration only when you want direct file-name clicks and the Microsoft 365 Open menu to route to the hosted handler endpoint.</p>
           </section>
 
           <section class="bpf-admin__section">
             <h3>External renderer disclosure</h3>
-            <p class="bpf-admin__hint">The .drawio renderer is disabled by default. If enabled, the "File Preview app" command loads the drawing XML from SharePoint into the diagrams.net embedded runtime at https://embed.diagrams.net in the user's browser session. This does not change Microsoft's built-in SharePoint previewer.</p>
+            <p class="bpf-admin__hint">The .drawio renderer is disabled by default. If enabled, the SharePoint command loads the drawing XML from SharePoint into the diagrams.net embedded runtime at https://embed.diagrams.net in the user's browser session.</p>
           </section>
 
           <section class="bpf-admin__section">
@@ -615,26 +615,94 @@ if ($FileHandlerEndpointUrl -eq "<optional-handler-endpoint-url>") {
 
 az login --tenant $TenantId
 $app = az ad app create --display-name "Microsoft 365 File Preview Handler" --sign-in-audience AzureADMyOrg | ConvertFrom-Json
-$handlerId = [guid]::NewGuid().ToString()
-$addIns = @(
+
+function Get-ExtensionSpec {
+  param([string]$Extension)
+  switch ($Extension) {
+    ".bpmn" {
+      return @{
+        assetPrefix = "bpmn"
+        actionMenuDisplayName = "Open BPMN"
+        fileTypeDisplayName = "BPMN process diagram"
+        openLabel = "Open BPMN"
+        openMode = "modeler"
+        previewMode = "viewer"
+      }
+    }
+    ".drawio" {
+      return @{
+        assetPrefix = "drawio"
+        actionMenuDisplayName = "Open DrawIO"
+        fileTypeDisplayName = "DrawIO diagram"
+        openLabel = "Open DrawIO"
+        openMode = "modeler"
+        previewMode = "viewer"
+      }
+    }
+    default {
+      throw "Native File Handler registration is only available for .bpmn and .drawio. Unsupported: $Extension"
+    }
+  }
+}
+
+function New-IconJson {
+  param([string]$AssetPrefix, [string]$IconType)
   @{
-    id = $handlerId
+    svg = "$FileHandlerEndpointUrl/assets/$AssetPrefix-$IconType.svg"
+    png1x = "$FileHandlerEndpointUrl/assets/$AssetPrefix-$IconType-32.png"
+    "png1.5x" = "$FileHandlerEndpointUrl/assets/$AssetPrefix-$IconType-48.png"
+    png2x = "$FileHandlerEndpointUrl/assets/$AssetPrefix-$IconType-64.png"
+  } | ConvertTo-Json -Compress
+}
+
+function New-FileHandler {
+  param([string]$Extension)
+  $spec = Get-ExtensionSpec -Extension $Extension
+  $encodedExtension = [uri]::EscapeDataString($Extension)
+  $actions = @(
+    @{
+      type = "preview"
+      url = "$FileHandlerEndpointUrl/filehandler/preview?extension=$encodedExtension&mode=$($spec.previewMode)"
+      availableOn = @{ file = @{ extensions = @($Extension) }; web = @{} }
+    },
+    @{
+      type = "open"
+      url = "$FileHandlerEndpointUrl/filehandler/open?extension=$encodedExtension&mode=$($spec.openMode)"
+      displayName = $spec.openLabel
+      shortDisplayName = $spec.openLabel
+      availableOn = @{ file = @{ extensions = @($Extension) }; web = @{} }
+    }
+  ) | ConvertTo-Json -Depth 20 -Compress
+
+  return @{
+    id = [guid]::NewGuid().ToString()
     type = "FileHandler"
     properties = @(
       @{ key = "version"; value = "2" },
-      @{ key = "fileTypeDisplayName"; value = "Process and architecture file" },
-      @{ key = "fileType"; value = $EnabledExtensions },
-      @{ key = "action"; value = "preview" },
-      @{ key = "url"; value = "$FileHandlerEndpointUrl/filehandler/preview" }
+      @{ key = "fileTypeDisplayName"; value = $spec.fileTypeDisplayName },
+      @{ key = "actionMenuDisplayName"; value = $spec.actionMenuDisplayName },
+      @{ key = "fileTypeIcon"; value = (New-IconJson -AssetPrefix $spec.assetPrefix -IconType "file") },
+      @{ key = "appIcon"; value = (New-IconJson -AssetPrefix $spec.assetPrefix -IconType "app") },
+      @{ key = "actions"; value = $actions }
     )
   }
-)
+}
+
+$extensions = $EnabledExtensions.Split(",") | ForEach-Object {
+  $extension = $_.Trim().ToLowerInvariant()
+  if ($extension -and -not $extension.StartsWith(".")) { ".$extension" } else { $extension }
+} | Where-Object { $_ } | Select-Object -Unique
+
+$addIns = @()
+foreach ($extension in $extensions) {
+  $addIns += New-FileHandler -Extension $extension
+}
+
 $manifestPath = Join-Path $env:TEMP "m365-file-preview-addins.json"
 @{ addIns = $addIns } | ConvertTo-Json -Depth 20 | Set-Content -Path $manifestPath -Encoding UTF8
 az ad app update --id $app.appId --set addIns=@$manifestPath
 
 Write-Host "Created File Handler app registration:" $app.appId
-Write-Host "Handler ID:" $handlerId
 Write-Host "Enabled extensions:" $EnabledExtensions`;
 }
 

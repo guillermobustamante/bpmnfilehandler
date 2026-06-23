@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { FolderOpen, TriangleAlert } from "lucide-react";
 import type { DirectLaunchOptions, LaunchContext } from "../App";
 import { resolveDriveItemInput } from "../graph/driveItem";
-import { BpmnWorkspace } from "./BpmnWorkspace";
+import { FileWorkspace } from "./FileWorkspace";
 
 type DirectLauncherProps = {
   directLaunch: DirectLaunchOptions;
@@ -32,7 +32,7 @@ export function DirectLauncher({ directLaunch, getAccessToken }: DirectLauncherP
           setLaunch({
             id: crypto.randomUUID(),
             action: "preview",
-            extension: directLaunch.extension,
+            extension: directLaunch.extension || getFileExtension(resolved.metadata.name),
             itemUrls: [resolved.itemUrl],
             mode: directLaunch.mode || "modeler",
             createdAt: new Date(now).toISOString(),
@@ -42,7 +42,7 @@ export function DirectLauncher({ directLaunch, getAccessToken }: DirectLauncherP
         }
       } catch (openError) {
         if (!cancelled) {
-          setError(openError instanceof Error ? openError.message : "Could not open this BPMN file.");
+          setError(openError instanceof Error ? openError.message : "Could not open this file.");
         }
       }
     }
@@ -55,16 +55,21 @@ export function DirectLauncher({ directLaunch, getAccessToken }: DirectLauncherP
   }, [directLaunch, getAccessToken]);
 
   if (launch) {
-    return <BpmnWorkspace getAccessToken={getAccessToken} launch={launch} />;
+    return <FileWorkspace getAccessToken={getAccessToken} launch={launch} />;
   }
 
   return (
     <main className="centered">
       <div className="centered__panel">
         {error ? <TriangleAlert aria-hidden="true" size={24} /> : <FolderOpen aria-hidden="true" size={24} />}
-        <h1>{error ? "BPMN handler unavailable" : "Opening BPMN"}</h1>
+        <h1>{error ? "File handler unavailable" : "Opening file"}</h1>
         <p>{error || "Loading the selected SharePoint file."}</p>
       </div>
     </main>
   );
+}
+
+function getFileExtension(fileName: string): string {
+  const match = fileName.toLowerCase().match(/\.[^.]+$/);
+  return match?.[0] || "";
 }

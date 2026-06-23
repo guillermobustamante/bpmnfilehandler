@@ -152,9 +152,7 @@ export default class BpmnOpenCommandSetCommandSet extends BaseListViewCommandSet
       const selectedFile = selectedRows.length === 1 ? getSelectedFile(selectedRows[0], this.settings) : undefined;
       const extension = selectedFile?.extensionSettings?.extension || getCandidateExtension(selectedFileName);
       openCommand.visible = selectedRows.length === 1 && Boolean(extension);
-      openCommand.title = extension
-        ? `File Preview app: ${extension.toUpperCase()}`
-        : 'File Preview app';
+      openCommand.title = extension ? getOpenCommandTitle(extension) : 'Open file';
     }
 
     const settingsCommand: Command = this.tryGetCommand(SETTINGS_COMMAND_ID);
@@ -223,6 +221,11 @@ function getSelectedFileName(row: RowAccessor): string {
 function getCandidateExtension(fileName: string): string {
   const normalizedFileName = fileName.toLowerCase();
   return CANDIDATE_EXTENSIONS.find((extension) => normalizedFileName.endsWith(extension)) || '';
+}
+
+function getOpenCommandTitle(extension: string): string {
+  const label = extension.replace(/^\./, '').toUpperCase();
+  return `Open ${label === 'DRAWIO' ? 'DrawIO' : label}`;
 }
 
 function getSelectedFileServerRelativeUrl(row: RowAccessor, webAbsoluteUrl: string): string {

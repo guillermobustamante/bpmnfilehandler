@@ -72,7 +72,7 @@ export function createDefaultPreviewSettings(appBaseUrl: string = DEFAULT_APP_BA
         displayName: 'diagrams.net drawing',
         enabled: false,
         extension: '.drawio',
-        mode: 'viewer',
+        mode: 'modeler',
         renderer: 'diagrams-net-embed'
       },
       {
