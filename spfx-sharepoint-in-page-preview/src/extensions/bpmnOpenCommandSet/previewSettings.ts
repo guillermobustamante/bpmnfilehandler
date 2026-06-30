@@ -1,7 +1,7 @@
 import { SPHttpClient, type SPHttpClientResponse } from '@microsoft/sp-http';
 
 export type FilePreviewMode = 'modeler' | 'viewer';
-export type FilePreviewRenderer = 'bpmn-js' | 'coming-soon' | 'diagrams-net-embed';
+export type FilePreviewRenderer = 'bpmn-js' | 'coming-soon' | 'diagrams-net-embed' | 'mermaid-js' | 'web-ifc' | 'occt-step';
 export type LicenseTier = 'Free' | 'Professional' | 'Business' | 'Enterprise';
 
 export interface IFileExtensionSettings {
@@ -76,11 +76,39 @@ export function createDefaultPreviewSettings(appBaseUrl: string = DEFAULT_APP_BA
         renderer: 'diagrams-net-embed'
       },
       {
-        displayName: 'STEP CAD model',
+        displayName: 'Mermaid diagram',
+        enabled: false,
+        extension: '.mmd',
+        mode: 'viewer',
+        renderer: 'mermaid-js'
+      },
+      {
+        displayName: 'Mermaid diagram (.mermaid)',
+        enabled: false,
+        extension: '.mermaid',
+        mode: 'viewer',
+        renderer: 'mermaid-js'
+      },
+      {
+        displayName: 'IFC building model',
+        enabled: false,
+        extension: '.ifc',
+        mode: 'viewer',
+        renderer: 'web-ifc'
+      },
+      {
+        displayName: 'STEP CAD model (.step)',
         enabled: false,
         extension: '.step',
         mode: 'viewer',
-        renderer: 'coming-soon'
+        renderer: 'occt-step'
+      },
+      {
+        displayName: 'STEP CAD model (.stp)',
+        enabled: false,
+        extension: '.stp',
+        mode: 'viewer',
+        renderer: 'occt-step'
       }
     ],
     fileHandlerEnabled: false,
@@ -394,18 +422,41 @@ function mergeDefaultExtensions(
   configuredExtensions: IFileExtensionSettings[],
   defaultExtensions: IFileExtensionSettings[]
 ): IFileExtensionSettings[] {
-  const merged = [...configuredExtensions];
+  // Upgrade saved extensions that have an incorrect renderer:
+  // (a) renderer was 'coming-soon' but a real implementation now exists in defaults.
+  // (b) renderer is 'bpmn-js' for an extension whose correct default is NOT 'bpmn-js'.
+  //     This handles the case where occt-step / web-ifc were added as valid renderers AFTER
+  //     the user last saved their settings — normalizeRenderer() previously fell back to
+  //     'bpmn-js' for any unrecognised string, so .step/.stp got that fallback value.
+  const upgraded = configuredExtensions.map((configured) => {
+    const defaultMatch = defaultExtensions.find((d) => d.extension === configured.extension);
+    if (!defaultMatch || defaultMatch.renderer === 'coming-soon') {
+      return configured;
+    }
+    const shouldUpgrade =
+      configured.renderer === 'coming-soon' ||
+      (configured.renderer === 'bpmn-js' && defaultMatch.renderer !== 'bpmn-js');
+    return shouldUpgrade ? { ...configured, renderer: defaultMatch.renderer } : configured;
+  });
+
+  // Add any default extensions not already present in the configured list.
   for (const defaultExtension of defaultExtensions) {
-    if (!merged.some((extension) => extension.extension === defaultExtension.extension)) {
-      merged.push(defaultExtension);
+    if (!upgraded.some((extension) => extension.extension === defaultExtension.extension)) {
+      upgraded.push(defaultExtension);
     }
   }
 
-  return merged;
+  return upgraded;
 }
 
 function normalizeRenderer(value: unknown): FilePreviewRenderer {
-  if (value === 'coming-soon' || value === 'diagrams-net-embed') {
+  if (
+    value === 'coming-soon' ||
+    value === 'diagrams-net-embed' ||
+    value === 'mermaid-js' ||
+    value === 'web-ifc' ||
+    value === 'occt-step'
+  ) {
     return value;
   }
 

@@ -23,6 +23,9 @@ export interface IAdminScriptContext {
   tenantId: string;
 }
 
+// Renderers for which the Modeler/Viewer mode toggle has no effect at runtime
+const VIEW_ONLY_RENDERERS = new Set<IFileExtensionSettings['renderer']>(['web-ifc', 'occt-step']);
+
 export class PreviewSettingsDialog extends BaseDialog {
   private draftSettings: IPreviewSettings;
 
@@ -42,18 +45,58 @@ export class PreviewSettingsDialog extends BaseDialog {
     this.domElement.innerHTML = `
       <div class="bpf-admin">
         <div class="bpf-admin__header">
-          <div>
-            <h2>File preview settings</h2>
-            <p>Tenant defaults should live in one central SharePoint configuration site. This instance is using ${escapeHtml(
-              this.scriptContext.configSiteUrl
-            )}.</p>
+          <div class="bpf-admin__header-text">
+            <h2 class="bpf-admin__title">File Preview Settings</h2>
+            <p class="bpf-admin__subtitle">Configure which file types are enabled across your tenant. Settings are stored in <strong>${escapeHtml(this.scriptContext.configSiteUrl)}</strong>.</p>
           </div>
           <button class="bpf-admin__close" type="button" aria-label="Close settings" title="Close">&times;</button>
         </div>
 
         <div class="bpf-admin__body">
-          <section class="bpf-admin__section">
-            <h3>Configuration scope</h3>
+
+          <section class="bpf-admin__card">
+            <h3 class="bpf-admin__card-title">Extensions</h3>
+            <p class="bpf-admin__card-desc">Enable the file types you want users to preview. At least one must be enabled to save.</p>
+            <div class="bpf-admin__ext-table" role="table" aria-label="File extension settings">
+              <div class="bpf-admin__ext-head" role="row">
+                <span>On</span>
+                <span>Extension</span>
+                <span>Display name</span>
+                <span>Mode</span>
+                <span>Renderer</span>
+                <span></span>
+              </div>
+              ${this.draftSettings.extensions.map((ext, idx) => renderExtensionRow(ext, idx)).join('')}
+            </div>
+            <button class="bpf-admin__add-btn" data-action="add-extension" type="button">+ Add extension</button>
+          </section>
+
+          <section class="bpf-admin__card">
+            <h3 class="bpf-admin__card-title">License</h3>
+            <div class="bpf-admin__two-col">
+              <label class="bpf-admin__field">
+                <span class="bpf-admin__label">Tier</span>
+                <select class="bpf-admin__select" data-field="licenseTier">
+                  ${renderTierOption('Free', this.draftSettings.license.tier, 'Free (up to 20 users)')}
+                  ${renderTierOption('Professional', this.draftSettings.license.tier, 'Professional')}
+                  ${renderTierOption('Business', this.draftSettings.license.tier, 'Business')}
+                  ${renderTierOption('Enterprise', this.draftSettings.license.tier, 'Enterprise')}
+                </select>
+              </label>
+              <label class="bpf-admin__field">
+                <span class="bpf-admin__label">Total users</span>
+                <input class="bpf-admin__input" data-field="declaredUserCount" min="0" step="1" type="number" value="${this.draftSettings.license.declaredUserCount}" />
+              </label>
+            </div>
+            <label class="bpf-admin__field">
+              <span class="bpf-admin__label">License key</span>
+              <input class="bpf-admin__input" data-field="licenseKey" type="password" autocomplete="off" value="${escapeAttribute(this.draftSettings.license.key)}" />
+            </label>
+            <p class="bpf-admin__hint">License keys are stored in the SharePoint configuration list visible to site administrators. This is a validation token, not an external-system credential.</p>
+          </section>
+
+          <section class="bpf-admin__card">
+            <h3 class="bpf-admin__card-title">Configuration scope</h3>
             <dl class="bpf-admin__facts">
               <div><dt>Config list</dt><dd>${escapeHtml(CONFIG_LIST_TITLE)}</dd></div>
               <div><dt>Config site</dt><dd>${escapeHtml(this.scriptContext.configSiteUrl)}</dd></div>
@@ -61,96 +104,53 @@ export class PreviewSettingsDialog extends BaseDialog {
             </dl>
           </section>
 
-          <section class="bpf-admin__section">
-            <h3>Optional native Microsoft 365 File Handler</h3>
+          <section class="bpf-admin__card">
+            <h3 class="bpf-admin__card-title">Optional native Microsoft 365 File Handler</h3>
             <label class="bpf-admin__field">
-              <span>File Handler endpoint URL</span>
-              <input data-field="appBaseUrl" type="url" placeholder="https://your-handler.example.com" value="${escapeAttribute(
-                this.draftSettings.appBaseUrl
-              )}" />
+              <span class="bpf-admin__label">File Handler endpoint URL</span>
+              <input class="bpf-admin__input" data-field="appBaseUrl" type="url" placeholder="https://your-handler.example.com" value="${escapeAttribute(this.draftSettings.appBaseUrl)}" />
             </label>
-            <label class="bpf-admin__check">
-              <input data-field="fileHandlerEnabled" type="checkbox" ${this.draftSettings.fileHandlerEnabled ? 'checked' : ''} />
-              <span>Native File Handler has been registered by an admin</span>
+            <label class="bpf-admin__toggle-row">
+              <span class="bpf-admin__toggle">
+                <input data-field="fileHandlerEnabled" type="checkbox" ${this.draftSettings.fileHandlerEnabled ? 'checked' : ''} />
+                <span class="bpf-admin__toggle-track"></span>
+              </span>
+              <span class="bpf-admin__toggle-label">Native File Handler has been registered by an admin</span>
             </label>
-            <p class="bpf-admin__hint">The SharePoint command named "Open BPMN" or "Open DrawIO" is self-contained in this SPFx package and does not use Azure. Native File Handler registration is optional and controls Microsoft's built-in file preview/open flow, which can still route to an external endpoint if an old Entra add-in remains registered.</p>
+            <p class="bpf-admin__hint">The SharePoint command (Open BPMN / Open DrawIO) is self-contained in this SPFx package and does not require Azure. Native File Handler registration is optional and controls Microsoft's built-in file preview flow.</p>
           </section>
 
-          <section class="bpf-admin__section">
-            <h3>How users should open files</h3>
-            <p class="bpf-admin__hint">Select one supported file, then use the command bar or item menu action named "Open BPMN" or "Open DrawIO". Use native File Handler registration only when you want direct file-name clicks and the Microsoft 365 Open menu to route to the hosted handler endpoint.</p>
-          </section>
+          <div class="bpf-admin__warning" role="alert">
+            <strong>Tenant Administrator action required.</strong> The scripts below require Entra <em>Application Administrator</em> or <em>Privileged Role Administrator</em> permissions. Do not share publicly.
+          </div>
 
-          <section class="bpf-admin__section">
-            <h3>External renderer disclosure</h3>
-            <p class="bpf-admin__hint">The .drawio renderer is disabled by default. If enabled, the SharePoint command loads the drawing XML from SharePoint into the diagrams.net embedded runtime at https://embed.diagrams.net in the user's browser session.</p>
-          </section>
-
-          <section class="bpf-admin__section">
-            <h3>License</h3>
-            <div class="bpf-admin__grid">
-              <label class="bpf-admin__field">
-                <span>Tier</span>
-                <select data-field="licenseTier">
-                  ${renderTierOption('Free', this.draftSettings.license.tier, 'Free - 20 users or less')}
-                  ${renderTierOption('Professional', this.draftSettings.license.tier, 'Professional')}
-                  ${renderTierOption('Business', this.draftSettings.license.tier, 'Business')}
-                  ${renderTierOption('Enterprise', this.draftSettings.license.tier, 'Enterprise')}
-                </select>
-              </label>
-              <label class="bpf-admin__field">
-                <span>Total users</span>
-                <input data-field="declaredUserCount" min="0" step="1" type="number" value="${this.draftSettings.license.declaredUserCount}" />
-              </label>
-            </div>
-            <label class="bpf-admin__field">
-              <span>License key</span>
-              <input data-field="licenseKey" type="password" autocomplete="off" value="${escapeAttribute(this.draftSettings.license.key)}" />
-            </label>
-          </section>
-
-          <section class="bpf-admin__section">
-            <div class="bpf-admin__section-heading">
-              <h3>Extensions</h3>
-              <button class="bpf-admin__secondary" data-action="add-extension" type="button">Add extension</button>
-            </div>
-            <div class="bpf-admin__table" role="table" aria-label="File extension settings">
-              <div class="bpf-admin__row bpf-admin__row--head" role="row">
-                <span>Enabled</span>
-                <span>Extension</span>
-                <span>Name</span>
-                <span>Mode</span>
-                <span>Status</span>
-                <span></span>
-              </div>
-              ${this.draftSettings.extensions.map((extension, index) => renderExtensionRow(extension, index)).join('')}
-            </div>
-          </section>
-
-          <section class="bpf-admin__section">
-            <div class="bpf-admin__section-heading">
-              <h3>Native File Handler cleanup script</h3>
-              <button class="bpf-admin__secondary" data-action="copy-cleanup-script" type="button">Copy cleanup script</button>
-            </div>
-            <p class="bpf-admin__hint">Use this if Microsoft's built-in preview still opens an old Azure File Handler. It removes matching native File Handler add-ins from Entra app registrations; it does not affect the SPFx SharePoint renderer.</p>
+          <details class="bpf-admin__card bpf-admin__collapsible">
+            <summary class="bpf-admin__collapsible-summary">
+              <span class="bpf-admin__card-title">Native File Handler cleanup script</span>
+              <button class="bpf-admin__copy-btn" data-action="copy-cleanup-script" type="button">Copy</button>
+            </summary>
+            <p class="bpf-admin__hint">Use this if Microsoft's built-in preview still opens an old Azure File Handler. Removes matching add-ins from Entra; does not affect the SPFx renderer.</p>
             <textarea class="bpf-admin__script" data-role="cleanup-script" readonly>${escapeHtml(cleanupScript)}</textarea>
-          </section>
+          </details>
 
-          <section class="bpf-admin__section">
-            <div class="bpf-admin__section-heading">
-              <h3>Optional native File Handler registration script</h3>
-              <button class="bpf-admin__secondary" data-action="copy-register-script" type="button">Copy registration script</button>
-            </div>
-            <p class="bpf-admin__hint">Optional only. The SharePoint preview experience does not require PowerShell. Use this only if you intentionally want native Microsoft 365 File Handler integration for OneDrive/File Handler launch flows.</p>
+          <details class="bpf-admin__card bpf-admin__collapsible">
+            <summary class="bpf-admin__collapsible-summary">
+              <span class="bpf-admin__card-title">Optional native File Handler registration script</span>
+              <button class="bpf-admin__copy-btn" data-action="copy-register-script" type="button">Copy</button>
+            </summary>
+            <p class="bpf-admin__hint">Optional only. Use this if you want native Microsoft 365 File Handler integration for OneDrive / File Handler launch flows. The SharePoint preview experience does not require this script.</p>
             <textarea class="bpf-admin__script" data-role="register-script" readonly>${escapeHtml(registerScript)}</textarea>
-          </section>
+          </details>
 
           <p class="bpf-admin__message" data-role="message" aria-live="polite"></p>
         </div>
 
         <div class="bpf-admin__footer">
-          <button class="bpf-admin__secondary" data-action="cancel" type="button">Cancel</button>
-          <button class="bpf-admin__primary" data-action="save" type="button">Save settings</button>
+          <span class="bpf-admin__version">v${APP_VERSION}</span>
+          <div class="bpf-admin__footer-actions">
+            <button class="bpf-admin__btn-secondary" data-action="cancel" type="button">Cancel</button>
+            <button class="bpf-admin__btn-primary" data-action="save" type="button">Save settings</button>
+          </div>
         </div>
       </div>
     `;
@@ -160,9 +160,7 @@ export class PreviewSettingsDialog extends BaseDialog {
   }
 
   public getConfig(): IDialogConfiguration {
-    return {
-      isBlocking: false
-    };
+    return { isBlocking: false };
   }
 
   protected onAfterClose(): void {
@@ -198,15 +196,35 @@ export class PreviewSettingsDialog extends BaseDialog {
         this.render();
       });
     });
-    this.domElement.querySelector('[data-action="copy-cleanup-script"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="copy-cleanup-script"]')?.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevent details toggle
       this.copyScript('cleanup-script', 'Cleanup script copied.');
     });
-    this.domElement.querySelector('[data-action="copy-register-script"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="copy-register-script"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.copyScript('register-script', 'Registration script copied.');
     });
     this.domElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
       this.save().catch((error: unknown) => {
         this.setMessage(error instanceof Error ? error.message : 'Could not save settings.', true);
+      });
+    });
+
+    // Warn before enabling diagrams.net (external renderer)
+    this.domElement.querySelectorAll('[data-extension-row]').forEach((row) => {
+      const rowEl = row as HTMLElement;
+      if (rowEl.dataset.renderer !== 'diagrams-net-embed') return;
+      const checkbox = rowEl.querySelector('[data-row-field="enabled"]') as HTMLInputElement | null;
+      if (!checkbox) return;
+      checkbox.addEventListener('change', () => {
+        if (!checkbox.checked) return;
+        const confirmed = window.confirm(
+          'Enabling diagrams.net will send drawing XML from SharePoint to the external\n' +
+          'diagrams.net service (https://embed.diagrams.net) in the user\'s browser.\n\n' +
+          'Your organization\'s diagram content will be processed by an external service.\n' +
+          'Confirm this is acceptable under your data handling policies before enabling.'
+        );
+        if (!confirmed) checkbox.checked = false;
       });
     });
   }
@@ -220,11 +238,8 @@ export class PreviewSettingsDialog extends BaseDialog {
       return;
     }
 
-    if (saveButton) {
-      saveButton.disabled = true;
-    }
-
-    this.setMessage('Saving settings...', false);
+    if (saveButton) saveButton.disabled = true;
+    this.setMessage('Saving settings…', false);
 
     try {
       const savedSettings = await this.settingsService.saveSettings(settings);
@@ -233,9 +248,7 @@ export class PreviewSettingsDialog extends BaseDialog {
       this.close().catch(() => undefined);
     } catch (error) {
       this.setMessage(error instanceof Error ? error.message : 'Could not save settings.', true);
-      if (saveButton) {
-        saveButton.disabled = false;
-      }
+      if (saveButton) saveButton.disabled = false;
     }
   }
 
@@ -274,10 +287,7 @@ export class PreviewSettingsDialog extends BaseDialog {
 
   private copyScript(role: string, successMessage: string): void {
     const script = (this.domElement.querySelector(`[data-role="${role}"]`) as HTMLTextAreaElement | null)?.value || '';
-    if (!script) {
-      return;
-    }
-
+    if (!script) return;
     navigator.clipboard
       .writeText(script)
       .then(() => this.setMessage(successMessage, false))
@@ -285,13 +295,10 @@ export class PreviewSettingsDialog extends BaseDialog {
   }
 
   private setMessage(message: string, isError: boolean): void {
-    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
-    if (!messageElement) {
-      return;
-    }
-
-    messageElement.textContent = message;
-    messageElement.classList.toggle('bpf-admin__message--error', isError);
+    const el = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    if (!el) return;
+    el.textContent = message;
+    el.classList.toggle('bpf-admin__message--error', isError);
   }
 
   private applyDialogChrome(): void {
@@ -300,8 +307,9 @@ export class PreviewSettingsDialog extends BaseDialog {
       dialogMain.style.width = 'min(1080px, calc(100vw - 48px))';
       dialogMain.style.maxWidth = 'min(1080px, calc(100vw - 48px))';
       dialogMain.style.maxHeight = 'calc(100vh - 48px)';
-      dialogMain.style.borderRadius = '0';
+      dialogMain.style.borderRadius = '8px';
       dialogMain.style.overflow = 'hidden';
+      dialogMain.style.boxShadow = '0 8px 40px rgba(0,0,0,.2)';
     }
 
     const modalScroll = this.domElement.closest('.ms-Modal-scrollableContent') as HTMLElement | null;
@@ -312,206 +320,395 @@ export class PreviewSettingsDialog extends BaseDialog {
 
     const style = document.createElement('style');
     style.textContent = `
+      :root {
+        --bpf-blue: #0078d4;
+        --bpf-blue-hover: #106ebe;
+        --bpf-blue-light: #deecf9;
+        --bpf-text: #242424;
+        --bpf-text-secondary: #605e5c;
+        --bpf-text-disabled: #a19f9d;
+        --bpf-surface: #ffffff;
+        --bpf-bg: #f5f5f5;
+        --bpf-border: #e1dfdd;
+        --bpf-border-strong: #c8c6c4;
+        --bpf-red: #a4262c;
+        --bpf-green: #107c10;
+        --bpf-warn-bg: #fff4ce;
+        --bpf-warn-border: #f2c811;
+        --bpf-radius: 6px;
+      }
       .bpf-admin {
-        background: #ffffff;
-        color: #242424;
+        background: var(--bpf-bg);
+        color: var(--bpf-text);
         display: flex;
         flex-direction: column;
-        font-family: "Segoe UI", Arial, sans-serif;
+        font-family: "Segoe UI Variable", "Segoe UI", system-ui, Arial, sans-serif;
+        font-size: 14px;
         max-height: calc(100vh - 48px);
       }
-      .bpf-admin__header,
-      .bpf-admin__footer {
-        align-items: center;
-        display: flex;
-        justify-content: space-between;
-        padding: 18px 24px;
-      }
+      /* ── Header ── */
       .bpf-admin__header {
-        border-bottom: 1px solid #e1dfdd;
+        align-items: flex-start;
+        background: var(--bpf-surface);
+        border-bottom: 1px solid var(--bpf-border);
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        padding: 20px 24px 16px;
       }
-      .bpf-admin__footer {
-        border-top: 1px solid #e1dfdd;
-        gap: 12px;
-        justify-content: flex-end;
+      .bpf-admin__title {
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.2;
+        margin: 0 0 4px;
       }
-      .bpf-admin h2,
-      .bpf-admin h3,
-      .bpf-admin p,
-      .bpf-admin dl {
+      .bpf-admin__subtitle {
+        color: var(--bpf-text-secondary);
+        font-size: 13px;
         margin: 0;
       }
-      .bpf-admin h2 {
+      .bpf-admin__close {
+        align-items: center;
+        background: none;
+        border: none;
+        border-radius: 50%;
+        color: var(--bpf-text);
+        cursor: pointer;
+        display: inline-flex;
+        flex: 0 0 auto;
         font-size: 22px;
-        font-weight: 600;
+        height: 36px;
+        justify-content: center;
+        line-height: 1;
+        margin-top: -4px;
+        padding: 0;
+        width: 36px;
       }
-      .bpf-admin h3 {
-        font-size: 16px;
-        font-weight: 600;
-      }
-      .bpf-admin__header p,
-      .bpf-admin__hint {
-        color: #605e5c;
-        font-size: 13px;
-      }
-      .bpf-admin__header p {
-        margin-top: 4px;
-      }
+      .bpf-admin__close:hover { background: var(--bpf-border); }
+      /* ── Scrollable body ── */
       .bpf-admin__body {
-        display: grid;
-        gap: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
         overflow: auto;
         padding: 20px 24px;
       }
-      .bpf-admin__section {
-        border: 1px solid #edebe9;
-        display: grid;
+      /* ── Cards ── */
+      .bpf-admin__card {
+        background: var(--bpf-surface);
+        border-radius: var(--bpf-radius);
+        box-shadow: 0 1px 4px rgba(0,0,0,.07);
+        display: flex;
+        flex-direction: column;
         gap: 14px;
-        padding: 16px;
+        padding: 20px;
       }
-      .bpf-admin__section-heading {
-        align-items: center;
-        display: flex;
-        justify-content: space-between;
-      }
-      .bpf-admin__facts {
-        display: grid;
-        gap: 8px;
-      }
-      .bpf-admin__facts div {
-        display: grid;
-        gap: 8px;
-        grid-template-columns: 140px minmax(0, 1fr);
-      }
-      .bpf-admin__facts dt {
-        color: #605e5c;
-        font-size: 13px;
+      .bpf-admin__card-title {
+        font-size: 15px;
         font-weight: 600;
+        margin: 0;
       }
-      .bpf-admin__facts dd {
-        overflow-wrap: anywhere;
+      .bpf-admin__card-desc {
+        color: var(--bpf-text-secondary);
+        font-size: 13px;
+        margin: -8px 0 0;
       }
-      .bpf-admin__grid {
-        display: grid;
+      /* ── Collapsible sections (PS scripts) ── */
+      .bpf-admin__collapsible { gap: 0; padding: 0; }
+      .bpf-admin__collapsible-summary {
+        align-items: center;
+        cursor: pointer;
+        display: flex;
         gap: 12px;
-        grid-template-columns: minmax(0, 1fr) 160px;
+        justify-content: space-between;
+        list-style: none;
+        padding: 16px 20px;
+        user-select: none;
       }
-      .bpf-admin__field {
+      .bpf-admin__collapsible-summary::-webkit-details-marker { display: none; }
+      .bpf-admin__collapsible-summary::before {
+        border: 5px solid transparent;
+        border-left: 8px solid var(--bpf-text-secondary);
+        content: '';
+        flex: 0 0 auto;
+        margin-right: 2px;
+        transition: transform .15s;
+      }
+      .bpf-admin__collapsible[open] > .bpf-admin__collapsible-summary::before {
+        transform: rotate(90deg);
+      }
+      .bpf-admin__collapsible[open] > .bpf-admin__card-title,
+      .bpf-admin__collapsible[open] > p,
+      .bpf-admin__collapsible[open] > textarea {
+        display: block;
+      }
+      .bpf-admin__collapsible > p,
+      .bpf-admin__collapsible > textarea {
+        margin: 0 20px;
+      }
+      .bpf-admin__collapsible > p { margin-bottom: 8px; }
+      .bpf-admin__collapsible > textarea { margin-bottom: 20px; }
+      /* ── Extension table ── */
+      .bpf-admin__ext-table {
+        border: 1px solid var(--bpf-border);
+        border-radius: 4px;
         display: grid;
-        gap: 6px;
+        overflow: hidden;
       }
-      .bpf-admin__field span,
-      .bpf-admin__check span {
-        color: #323130;
-        font-size: 13px;
-        font-weight: 600;
-      }
-      .bpf-admin__field input,
-      .bpf-admin__field select,
-      .bpf-admin__row input,
-      .bpf-admin__row select,
-      .bpf-admin__script {
-        border: 1px solid #8a8886;
-        box-sizing: border-box;
-        font: inherit;
-        min-height: 34px;
-        padding: 6px 8px;
-        width: 100%;
-      }
-      .bpf-admin__script {
-        font-family: Consolas, "Courier New", monospace;
+      .bpf-admin__ext-head {
+        background: var(--bpf-bg);
+        border-bottom: 1px solid var(--bpf-border);
+        color: var(--bpf-text-secondary);
+        display: grid;
         font-size: 12px;
-        height: 220px;
-        resize: vertical;
-        white-space: pre;
+        font-weight: 600;
+        gap: 10px;
+        grid-template-columns: 52px 110px minmax(160px,1fr) 130px 120px 36px;
+        letter-spacing: .03em;
+        padding: 8px 12px;
+        text-transform: uppercase;
       }
-      .bpf-admin__check {
-        align-items: center;
-        display: flex;
-        gap: 8px;
-      }
-      .bpf-admin__table {
-        border: 1px solid #edebe9;
-        display: grid;
-      }
-      .bpf-admin__row {
-        align-items: center;
-        border-top: 1px solid #edebe9;
+      .bpf-admin__ext-row {
+        border-top: 1px solid var(--bpf-border);
         display: grid;
         gap: 10px;
-        grid-template-columns: 72px 120px minmax(180px, 1fr) 130px 120px 44px;
-        padding: 8px;
-      }
-      .bpf-admin__row:first-child {
-        border-top: 0;
-      }
-      .bpf-admin__row--head {
-        background: #faf9f8;
-        color: #605e5c;
-        font-size: 12px;
-        font-weight: 600;
-      }
-      .bpf-admin__row--disabled {
-        background: #fafafa;
-        color: #777777;
-      }
-      .bpf-admin__status {
-        color: #605e5c;
-        font-size: 12px;
-      }
-      .bpf-admin__primary,
-      .bpf-admin__secondary,
-      .bpf-admin__icon,
-      .bpf-admin__close {
-        border: 1px solid #8a8886;
-        cursor: pointer;
-        font: inherit;
-      }
-      .bpf-admin__primary {
-        background: #0078d4;
-        border-color: #0078d4;
-        color: #ffffff;
-        min-height: 36px;
-        padding: 0 18px;
-      }
-      .bpf-admin__secondary {
-        background: #ffffff;
-        color: #242424;
-        min-height: 36px;
-        padding: 0 14px;
-      }
-      .bpf-admin__icon,
-      .bpf-admin__close {
+        grid-template-columns: 52px 110px minmax(160px,1fr) 130px 120px 36px;
+        padding: 8px 12px;
         align-items: center;
-        background: #ffffff;
+      }
+      .bpf-admin__ext-row:first-of-type { border-top: 0; }
+      .bpf-admin__ext-row--disabled { opacity: .55; }
+      /* Toggle switch */
+      .bpf-admin__toggle {
         display: inline-flex;
-        justify-content: center;
-      }
-      .bpf-admin__icon {
-        height: 32px;
-        width: 32px;
-      }
-      .bpf-admin__close {
-        border-radius: 50%;
-        font-size: 28px;
-        height: 40px;
-        line-height: 1;
-        padding: 0 0 4px;
+        height: 20px;
+        position: relative;
         width: 40px;
       }
-      .bpf-admin__message {
-        color: #605e5c;
-        min-height: 20px;
+      .bpf-admin__toggle input[type="checkbox"] {
+        height: 0;
+        opacity: 0;
+        position: absolute;
+        width: 0;
       }
-      .bpf-admin__message--error {
-        color: #a4262c;
+      .bpf-admin__toggle-track {
+        background: var(--bpf-border-strong);
+        border-radius: 10px;
+        bottom: 0;
+        cursor: pointer;
+        left: 0;
+        position: absolute;
+        right: 0;
+        top: 0;
+        transition: background .15s;
       }
+      .bpf-admin__toggle-track::after {
+        background: #fff;
+        border-radius: 50%;
+        bottom: 2px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.3);
+        content: '';
+        height: 16px;
+        left: 2px;
+        position: absolute;
+        transition: left .15s;
+        width: 16px;
+      }
+      .bpf-admin__toggle input:checked + .bpf-admin__toggle-track { background: var(--bpf-blue); }
+      .bpf-admin__toggle input:checked + .bpf-admin__toggle-track::after { left: 22px; }
+      .bpf-admin__toggle input:disabled + .bpf-admin__toggle-track { cursor: not-allowed; opacity: .5; }
+      .bpf-admin__toggle-row {
+        align-items: center;
+        display: flex;
+        gap: 10px;
+      }
+      .bpf-admin__toggle-label { color: var(--bpf-text); font-size: 14px; }
+      /* Renderer badge */
+      .bpf-admin__renderer-badge {
+        border-radius: 3px;
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 7px;
+        white-space: nowrap;
+      }
+      /* Form controls */
+      .bpf-admin__input,
+      .bpf-admin__select {
+        background: var(--bpf-surface);
+        border: 1px solid var(--bpf-border-strong);
+        border-radius: 4px;
+        box-sizing: border-box;
+        color: var(--bpf-text);
+        font: inherit;
+        min-height: 34px;
+        padding: 5px 10px;
+        width: 100%;
+      }
+      .bpf-admin__input:focus,
+      .bpf-admin__select:focus {
+        border-color: var(--bpf-blue);
+        box-shadow: 0 0 0 1px var(--bpf-blue);
+        outline: none;
+      }
+      .bpf-admin__input:disabled,
+      .bpf-admin__select:disabled {
+        background: var(--bpf-bg);
+        color: var(--bpf-text-disabled);
+        cursor: not-allowed;
+      }
+      /* Inline row inputs (ext table) */
+      .bpf-admin__ext-row input[type="text"],
+      .bpf-admin__ext-row input:not([type]),
+      .bpf-admin__ext-row select {
+        background: var(--bpf-surface);
+        border: 1px solid var(--bpf-border-strong);
+        border-radius: 4px;
+        box-sizing: border-box;
+        color: var(--bpf-text);
+        font: inherit;
+        font-size: 13px;
+        min-height: 30px;
+        padding: 4px 8px;
+        width: 100%;
+      }
+      .bpf-admin__ext-row input:read-only,
+      .bpf-admin__ext-row select:disabled {
+        background: var(--bpf-bg);
+        color: var(--bpf-text-disabled);
+        cursor: default;
+      }
+      .bpf-admin__ext-row select:disabled { cursor: not-allowed; }
+      .bpf-admin__mode-hint {
+        color: var(--bpf-text-disabled);
+        font-size: 11px;
+        font-style: italic;
+        margin-top: 2px;
+      }
+      /* Script textarea */
+      .bpf-admin__script {
+        background: #1e1e1e;
+        border: 1px solid var(--bpf-border);
+        border-radius: 4px;
+        box-sizing: border-box;
+        color: #d4d4d4;
+        display: block;
+        font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+        font-size: 12px;
+        height: 200px;
+        resize: vertical;
+        white-space: pre;
+        width: 100%;
+      }
+      /* Layout helpers */
+      .bpf-admin__two-col {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: minmax(0,1fr) 160px;
+      }
+      .bpf-admin__field { display: flex; flex-direction: column; gap: 5px; }
+      .bpf-admin__label { color: var(--bpf-text); font-size: 13px; font-weight: 600; }
+      .bpf-admin__hint { color: var(--bpf-text-secondary); font-size: 13px; margin: 0; }
+      /* DL facts */
+      .bpf-admin__facts { display: grid; gap: 8px; margin: 0; }
+      .bpf-admin__facts div { display: grid; gap: 8px; grid-template-columns: 140px minmax(0,1fr); }
+      .bpf-admin__facts dt { color: var(--bpf-text-secondary); font-size: 13px; font-weight: 600; }
+      .bpf-admin__facts dd { overflow-wrap: anywhere; }
+      /* Warning banner */
+      .bpf-admin__warning {
+        background: var(--bpf-warn-bg);
+        border: 1px solid var(--bpf-warn-border);
+        border-radius: var(--bpf-radius);
+        color: var(--bpf-text);
+        font-size: 13px;
+        padding: 12px 16px;
+      }
+      /* Add extension */
+      .bpf-admin__add-btn {
+        align-self: flex-start;
+        background: none;
+        border: 1px dashed var(--bpf-border-strong);
+        border-radius: 4px;
+        color: var(--bpf-blue);
+        cursor: pointer;
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 14px;
+      }
+      .bpf-admin__add-btn:hover { background: var(--bpf-blue-light); border-color: var(--bpf-blue); }
+      /* Remove extension */
+      .bpf-admin__remove-btn {
+        align-items: center;
+        background: none;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        color: var(--bpf-text-secondary);
+        cursor: pointer;
+        display: inline-flex;
+        font: inherit;
+        font-size: 18px;
+        height: 30px;
+        justify-content: center;
+        padding: 0;
+        width: 30px;
+      }
+      .bpf-admin__remove-btn:hover:not(:disabled) { border-color: var(--bpf-border-strong); color: var(--bpf-red); }
+      .bpf-admin__remove-btn:disabled { color: var(--bpf-text-disabled); cursor: not-allowed; }
+      /* Copy button in collapsible header */
+      .bpf-admin__copy-btn {
+        background: none;
+        border: 1px solid var(--bpf-border-strong);
+        border-radius: 4px;
+        color: var(--bpf-text);
+        cursor: pointer;
+        flex: 0 0 auto;
+        font: inherit;
+        font-size: 12px;
+        padding: 4px 12px;
+      }
+      .bpf-admin__copy-btn:hover { background: var(--bpf-bg); }
+      /* Footer */
+      .bpf-admin__footer {
+        align-items: center;
+        background: var(--bpf-surface);
+        border-top: 1px solid var(--bpf-border);
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
+        padding: 14px 24px;
+      }
+      .bpf-admin__footer-actions { display: flex; gap: 10px; }
+      .bpf-admin__version { color: var(--bpf-text-disabled); font-size: 12px; }
+      .bpf-admin__btn-primary,
+      .bpf-admin__btn-secondary {
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+        font-size: 14px;
+        min-height: 36px;
+        padding: 0 20px;
+      }
+      .bpf-admin__btn-primary {
+        background: var(--bpf-blue);
+        border: 1px solid var(--bpf-blue);
+        color: #fff;
+      }
+      .bpf-admin__btn-primary:hover:not(:disabled) { background: var(--bpf-blue-hover); border-color: var(--bpf-blue-hover); }
+      .bpf-admin__btn-primary:disabled { background: var(--bpf-border-strong); border-color: var(--bpf-border-strong); cursor: not-allowed; }
+      .bpf-admin__btn-secondary {
+        background: var(--bpf-surface);
+        border: 1px solid var(--bpf-border-strong);
+        color: var(--bpf-text);
+      }
+      .bpf-admin__btn-secondary:hover { background: var(--bpf-bg); }
+      /* Status message */
+      .bpf-admin__message { color: var(--bpf-text-secondary); font-size: 13px; min-height: 18px; margin: 0; }
+      .bpf-admin__message--error { color: var(--bpf-red); }
       @media (max-width: 800px) {
-        .bpf-admin__grid,
-        .bpf-admin__row,
-        .bpf-admin__facts div {
-          grid-template-columns: 1fr;
-        }
+        .bpf-admin__two-col,
+        .bpf-admin__facts div { grid-template-columns: 1fr; }
+        .bpf-admin__ext-head,
+        .bpf-admin__ext-row { grid-template-columns: 44px minmax(80px, 1fr) minmax(100px, 1fr) 100px 90px 30px; }
       }
     `;
     this.domElement.prepend(style);
@@ -524,30 +721,45 @@ function renderTierOption(value: LicenseTier, selected: LicenseTier, label: stri
 
 function renderExtensionRow(extension: IFileExtensionSettings, index: number): string {
   const comingSoon = extension.renderer === 'coming-soon';
-  const external = extension.renderer === 'diagrams-net-embed';
+  const viewOnly = VIEW_ONLY_RENDERERS.has(extension.renderer);
+  const modeDisabled = comingSoon || viewOnly;
+  const modeTitle = viewOnly ? 'This renderer is view-only — mode has no effect' : '';
+
+  const rendererBadge = getRendererBadge(extension.renderer);
+
   return `
-    <div class="bpf-admin__row ${comingSoon ? 'bpf-admin__row--disabled' : ''}" data-extension-row="${index}" data-renderer="${
-      extension.renderer
-    }" role="row">
-      <label>
+    <div class="bpf-admin__ext-row ${comingSoon ? 'bpf-admin__ext-row--disabled' : ''}"
+         data-extension-row="${index}" data-renderer="${extension.renderer}" role="row">
+      <label class="bpf-admin__toggle" title="${comingSoon ? 'Not yet available' : ''}">
         <input data-row-field="enabled" type="checkbox" ${extension.enabled ? 'checked' : ''} ${comingSoon ? 'disabled' : ''} />
+        <span class="bpf-admin__toggle-track"></span>
       </label>
-      <input data-row-field="extension" aria-label="Extension" value="${escapeAttribute(extension.extension)}" ${
-        comingSoon ? 'readonly' : ''
-      } />
-      <input data-row-field="displayName" aria-label="Display name" value="${escapeAttribute(extension.displayName)}" ${
-        comingSoon ? 'readonly' : ''
-      } />
-      <select data-row-field="mode" aria-label="Mode" ${comingSoon ? 'disabled' : ''}>
-        <option value="modeler" ${extension.mode === 'modeler' ? 'selected' : ''}>Modeler</option>
-        <option value="viewer" ${extension.mode === 'viewer' ? 'selected' : ''}>Viewer</option>
-      </select>
-      <span class="bpf-admin__status">${comingSoon ? 'Coming soon' : external ? 'External renderer' : 'Available'}</span>
-      <button class="bpf-admin__icon" data-action="remove-extension" data-index="${index}" type="button" aria-label="Remove extension" title="Remove" ${
-        comingSoon ? 'disabled' : ''
-      }>&times;</button>
+      <input data-row-field="extension" aria-label="Extension" type="text" value="${escapeAttribute(extension.extension)}" ${comingSoon ? 'readonly' : ''} />
+      <input data-row-field="displayName" aria-label="Display name" type="text" value="${escapeAttribute(extension.displayName)}" ${comingSoon ? 'readonly' : ''} />
+      <div>
+        <select data-row-field="mode" aria-label="Mode" ${modeDisabled ? 'disabled' : ''} title="${modeTitle}">
+          <option value="modeler" ${extension.mode === 'modeler' ? 'selected' : ''}>Modeler</option>
+          <option value="viewer" ${extension.mode === 'viewer' ? 'selected' : ''}>Viewer</option>
+        </select>
+        ${viewOnly ? `<div class="bpf-admin__mode-hint">View-only renderer</div>` : ''}
+      </div>
+      <span class="bpf-admin__renderer-badge" style="background:${rendererBadge.bg};color:${rendererBadge.color}">${escapeHtml(rendererBadge.label)}</span>
+      <button class="bpf-admin__remove-btn" data-action="remove-extension" data-index="${index}" type="button"
+              aria-label="Remove extension" title="Remove" ${comingSoon ? 'disabled' : ''}>&times;</button>
     </div>
   `;
+}
+
+function getRendererBadge(renderer: IFileExtensionSettings['renderer']): { label: string; color: string; bg: string } {
+  const map: Record<IFileExtensionSettings['renderer'], { label: string; color: string; bg: string }> = {
+    'bpmn-js':           { label: 'BPMN-JS',    color: '#107c10', bg: '#dff6dd' },
+    'diagrams-net-embed':{ label: 'Draw.io',     color: '#c55a11', bg: '#fce4d6' },
+    'mermaid-js':        { label: 'Mermaid',     color: '#5c2d91', bg: '#edebf9' },
+    'web-ifc':           { label: 'web-ifc',     color: '#004578', bg: '#cce4f7' },
+    'occt-step':         { label: 'OCCT',        color: '#003f5c', bg: '#cde8f7' },
+    'coming-soon':       { label: 'Coming soon', color: '#a19f9d', bg: '#f3f2f1' }
+  };
+  return map[renderer] ?? { label: renderer, color: '#605e5c', bg: '#f3f2f1' };
 }
 
 function validateSettings(settings: IPreviewSettings): string {
@@ -604,7 +816,8 @@ function buildRegisterFileHandlerScript(settings: IPreviewSettings, context: IAd
 # App version: ${APP_VERSION}
 # The SPFx SharePoint preview experience does not require this script.
 # Run only if you want native Microsoft 365 File Handler integration.
-# Required: Azure CLI and Entra application administrator permissions.
+# Required Azure roles: Application Administrator OR Privileged Role Administrator
+# Handle this script with appropriate security controls. Do not share publicly.
 
 $TenantId = "${context.tenantId || '<tenant-id>'}"
 $EnabledExtensions = "${enabledExtensions}"
@@ -714,13 +927,14 @@ function buildCleanupFileHandlerScript(settings: IPreviewSettings, context: IAdm
     .filter((extension) => extension.renderer !== 'coming-soon')
     .map((extension) => extension.extension)
     .join(',');
-  const endpoint = settings.appBaseUrl || 'https://bpmn-file-handler-2f18b433.azurewebsites.net';
+  const endpoint = settings.appBaseUrl || '<your-file-handler-endpoint-url>';
 
   return `# Native Microsoft 365 File Handler cleanup
 # App version: ${APP_VERSION}
 # The SPFx SharePoint renderer does not use Azure. This script removes stale native
 # File Handler add-ins that route Microsoft's built-in preview/open flow to an old endpoint.
-# Required: Azure CLI and Entra application administrator permissions.
+# Required Azure roles: Application Administrator OR Privileged Role Administrator
+# Handle this script with appropriate security controls. Do not share publicly.
 
 $TenantId = "${context.tenantId || '<tenant-id>'}"
 $EndpointContains = "${endpoint}"
@@ -787,11 +1001,17 @@ Write-Host "Microsoft 365 File Handler changes can still take time to expire fro
 }
 
 function readRenderer(value: unknown): IFileExtensionSettings['renderer'] {
-  if (value === 'coming-soon' || value === 'diagrams-net-embed') {
-    return value;
+  switch (value) {
+    case 'bpmn-js':
+    case 'coming-soon':
+    case 'diagrams-net-embed':
+    case 'mermaid-js':
+    case 'web-ifc':
+    case 'occt-step':
+      return value;
+    default:
+      return 'bpmn-js';
   }
-
-  return 'bpmn-js';
 }
 
 function readInputValue(root: HTMLElement, fieldName: string): string {

@@ -10,6 +10,9 @@ import {
 import { Dialog } from '@microsoft/sp-dialog';
 import { BpmnViewerDialog } from './BpmnViewerDialog';
 import { DrawioViewerDialog } from './DrawioViewerDialog';
+import { MermaidViewerDialog } from './MermaidViewerDialog';
+import { IfcViewerDialog } from './IfcViewerDialog';
+import { StepViewerDialog } from './StepViewerDialog';
 import { PreviewSettingsDialog } from './PreviewSettingsDialog';
 import {
   createDefaultPreviewSettings,
@@ -31,7 +34,6 @@ export interface IBpmnOpenCommandSetCommandSetProperties {
 const LOG_SOURCE: string = 'BpmnOpenCommandSet';
 const OPEN_FILE_COMMAND_ID: string = 'OPEN_BPMN';
 const SETTINGS_COMMAND_ID: string = 'BPMN_SETTINGS';
-const CANDIDATE_EXTENSIONS: string[] = ['.bpmn', '.drawio', '.jt', '.step'];
 
 export default class BpmnOpenCommandSetCommandSet extends BaseListViewCommandSet<IBpmnOpenCommandSetCommandSetProperties> {
   private settings: IPreviewSettings = createDefaultPreviewSettings(DEFAULT_APP_BASE_URL);
@@ -64,8 +66,16 @@ export default class BpmnOpenCommandSetCommandSet extends BaseListViewCommandSet
     }
 
     this.openSelectedFile().catch((error: unknown) => {
+      // console.error makes the real root-cause visible in DevTools (Log.error only goes to SP internal logging)
+      console.error('[BpfPreview] openSelectedFile rejected:', error);
       Log.error(LOG_SOURCE, error instanceof Error ? error : new Error('Could not open preview dialog.'));
-      Dialog.alert(error instanceof Error ? error.message : 'Could not open the selected file.').catch(() => undefined);
+      try {
+        Dialog.alert(error instanceof Error ? error.message : 'Could not open the selected file.').catch(() => undefined);
+      } catch (alertErr: unknown) {
+        // Dialog.alert() throws synchronously when the dialog service host element is gone (domElement undefined).
+        // This happens when show() fails and the framework tears down the host before we reach this catch handler.
+        console.error('[BpfPreview] Dialog.alert threw (dialog service lost):', alertErr);
+      }
     });
   }
 
@@ -86,22 +96,22 @@ export default class BpmnOpenCommandSetCommandSet extends BaseListViewCommandSet
       throw new Error('Could not read the selected SharePoint file path.');
     }
 
-    const dialog =
-      selectedFile.extensionSettings.renderer === 'diagrams-net-embed'
-        ? new DrawioViewerDialog(
-            this.context.spHttpClient,
-            this.context.pageContext.web.absoluteUrl,
-            serverRelativeUrl,
-            selectedFile.fileName,
-            selectedFile.extensionSettings
-          )
-        : new BpmnViewerDialog(
-            this.context.spHttpClient,
-            this.context.pageContext.web.absoluteUrl,
-            serverRelativeUrl,
-            selectedFile.fileName,
-            selectedFile.extensionSettings
-          );
+    const { spHttpClient } = this.context;
+    const webUrl = this.context.pageContext.web.absoluteUrl;
+    const { renderer } = selectedFile.extensionSettings;
+
+    let dialog;
+    if (renderer === 'diagrams-net-embed') {
+      dialog = new DrawioViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+    } else if (renderer === 'mermaid-js') {
+      dialog = new MermaidViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+    } else if (renderer === 'web-ifc') {
+      dialog = new IfcViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+    } else if (renderer === 'occt-step') {
+      dialog = new StepViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+    } else {
+      dialog = new BpmnViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+    }
     await dialog.show();
   }
 
@@ -148,9 +158,8 @@ export default class BpmnOpenCommandSetCommandSet extends BaseListViewCommandSet
     const openCommand: Command = this.tryGetCommand(OPEN_FILE_COMMAND_ID);
     if (openCommand) {
       const selectedRows = this.context.listView.selectedRows || [];
-      const selectedFileName = selectedRows.length === 1 ? getSelectedFileName(selectedRows[0]) : '';
       const selectedFile = selectedRows.length === 1 ? getSelectedFile(selectedRows[0], this.settings) : undefined;
-      const extension = selectedFile?.extensionSettings?.extension || getCandidateExtension(selectedFileName);
+      const extension = selectedFile?.extensionSettings?.extension ?? '';
       openCommand.visible = selectedRows.length === 1 && Boolean(extension);
       openCommand.title = extension ? getOpenCommandTitle(extension) : 'Open file';
     }
@@ -218,14 +227,17 @@ function getSelectedFileName(row: RowAccessor): string {
   return String(row.getValueByName('FileLeafRef') || row.getValueByName('LinkFilename') || '');
 }
 
-function getCandidateExtension(fileName: string): string {
-  const normalizedFileName = fileName.toLowerCase();
-  return CANDIDATE_EXTENSIONS.find((extension) => normalizedFileName.endsWith(extension)) || '';
-}
-
 function getOpenCommandTitle(extension: string): string {
-  const label = extension.replace(/^\./, '').toUpperCase();
-  return `Open ${label === 'DRAWIO' ? 'DrawIO' : label}`;
+  const labels: Record<string, string> = {
+    '.drawio': 'DrawIO',
+    '.mmd': 'Mermaid',
+    '.mermaid': 'Mermaid',
+    '.ifc': 'IFC',
+    '.step': 'STEP',
+    '.stp': 'STP'
+  };
+  const label = labels[extension.toLowerCase()] ?? extension.replace(/^\./, '').toUpperCase();
+  return `Open ${label}`;
 }
 
 function getSelectedFileServerRelativeUrl(row: RowAccessor, webAbsoluteUrl: string): string {

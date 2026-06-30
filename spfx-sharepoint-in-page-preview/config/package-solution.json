@@ -3,34 +3,37 @@
   "solution": {
     "name": "bpmn-open-command-set-client-side-solution",
     "id": "2ab9f11d-b745-4c32-b87a-460301fccf91",
-    "version": "1.4.18.0",
+    "version": "1.5.21.0",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
     "developer": {
       "name": "Evolve Global Solutions",
       "websiteUrl": "https://evolvegs.ca",
-      "privacyUrl": "",
-      "termsOfUseUrl": "",
-      "mpnId": "Undefined-1.23.0"
+      "privacyUrl": "https://evolvegs.ca/privacy",
+      "termsOfUseUrl": "https://evolvegs.ca/terms",
+      "mpnId": ""
     },
     "metadata": {
       "shortDescription": {
-        "default": "Preview engineering, process, and architecture files in SharePoint"
+        "default": "Preview and edit BPMN process diagrams and engineering files directly in SharePoint"
       },
       "longDescription": {
-        "default": "Adds a self-contained SharePoint command set, BPMN renderer, and tenant admin page for opening supported engineering, process, and architecture files in a same-page preview dialog. BPMN process diagrams are enabled by default, with optional Microsoft 365 File Handler registration for native OneDrive integration."
+        "default": "Open BPMN process diagrams and diagrams.net drawings directly inside SharePoint document libraries — no downloads, no external apps. Select any supported file and click 'Open BPMN' or 'Open DrawIO' in the command bar to launch a full-featured in-page editor.\n\nAfter installation, the 'File Preview Admin' button appears at the bottom of any SharePoint site where you are an administrator. Click it to configure which file types are enabled for your tenant.\n\nAlternatively, open settings at any time by navigating to:\nhttps://[YourTenant].sharepoint.com/?m365FilePreviewAdmin=1\n\nFull setup guide: https://evolvegs.ca/file-preview/setup"
       },
-      "screenshotPaths": [],
+      "screenshotPaths": [
+        "./assets/screenshot1.png",
+        "./assets/screenshot2.png"
+      ],
       "videoUrl": "",
-      "categories": []
+      "categories": ["Productivity"]
     },
     "features": [
       {
         "title": "File Preview Command Set",
         "description": "Deploys the document-library preview command and tenant admin page.",
         "id": "45deb6cb-3879-401d-8133-4cb2cd5fe682",
-        "version": "1.4.18.0",
+        "version": "1.5.21.0",
         "assets": {
           "elementManifests": [
             "elements.xml",

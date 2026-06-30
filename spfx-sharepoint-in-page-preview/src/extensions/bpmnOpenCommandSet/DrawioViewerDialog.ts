@@ -2,6 +2,7 @@ import { SPHttpClient } from '@microsoft/sp-http';
 import { BaseDialog, type IDialogConfiguration } from '@microsoft/sp-dialog';
 import type { IFileExtensionSettings } from './previewSettings';
 import { SharePointFileService, type ISharePointFileMetadata } from './sharePointFileService';
+import { renderIcon } from '../../shared/icons';
 
 const DRAWIO_EMBED_ORIGIN: string = 'https://embed.diagrams.net';
 const DRAWIO_EMBED_URL: string = `${DRAWIO_EMBED_ORIGIN}/?embed=1&proto=json&spin=1&libraries=1&noSaveBtn=1&noExitBtn=1`;
@@ -14,12 +15,10 @@ type DrawioMessage = {
 
 export class DrawioViewerDialog extends BaseDialog {
   private fileService: SharePointFileService;
-  private hostElement: HTMLElement | undefined;
   private iframeElement: HTMLIFrameElement | undefined;
   private isDirty: boolean = false;
   private metadata: ISharePointFileMetadata | undefined;
   private readonly onMessageBound = this.onMessage.bind(this);
-  private readonly onWindowResizeBound = (): void => this.applyDialogChrome();
   private xml: string = '';
 
   public constructor(
@@ -34,8 +33,11 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   public render(): void {
-    const root = this.ensureHostElement();
-    root.innerHTML = `
+    this.domElement.style.cssText = 'box-sizing:border-box;display:flex;flex-direction:column;height:100dvh;inset:0;overflow:hidden;position:fixed;width:100vw;z-index:2147483647;';
+    this.makeFullViewport();
+    window.requestAnimationFrame(() => this.makeFullViewport());
+    window.setTimeout(() => this.makeFullViewport(), 300);
+    this.domElement.innerHTML = `
       <div class="drawio-dialog">
         <div class="drawio-dialog__header">
           <div class="drawio-dialog__title">
@@ -53,6 +55,9 @@ export class DrawioViewerDialog extends BaseDialog {
             <button class="drawio-dialog__button" data-action="download" type="button" aria-label="Download" title="Download">${renderIcon(
               'download'
             )}</button>
+            <button class="drawio-dialog__button" data-action="fit" type="button" aria-label="Fit to screen" title="Fit to screen">${renderIcon(
+              'maximize'
+            )}</button>
             <button class="drawio-dialog__button" data-action="fullscreen" type="button" aria-label="Open full screen" title="Open full screen">${renderIcon(
               'external'
             )}</button>
@@ -64,9 +69,8 @@ export class DrawioViewerDialog extends BaseDialog {
       </div>
     `;
 
-    this.applyDialogChrome();
-    this.scheduleChromeRefresh();
-    this.iframeElement = this.rootElement.querySelector('[data-role="frame"]') as HTMLIFrameElement | undefined;
+    this.ensureStyles();
+    this.iframeElement = this.domElement.querySelector('[data-role="frame"]') as HTMLIFrameElement | undefined;
     this.wireEvents();
     window.addEventListener('message', this.onMessageBound);
     this.load().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not open draw.io file.'));
@@ -81,10 +85,6 @@ export class DrawioViewerDialog extends BaseDialog {
   protected onAfterClose(): void {
     this.exitFullscreen().catch(() => undefined);
     window.removeEventListener('message', this.onMessageBound);
-    window.removeEventListener('resize', this.onWindowResizeBound);
-    this.hostElement?.remove();
-    this.hostElement = undefined;
-    this.domElement.innerHTML = '';
     super.onAfterClose();
   }
 
@@ -195,221 +195,77 @@ export class DrawioViewerDialog extends BaseDialog {
     this.iframeElement?.contentWindow?.postMessage(JSON.stringify({ action: 'save' }), DRAWIO_EMBED_ORIGIN);
   }
 
+  private fitDiagram(): void {
+    // Reloading the current XML causes diagrams.net to reset the viewport and fit the diagram.
+    window.setTimeout(() => this.sendLoadMessage(), 50);
+  }
+
   private wireEvents(): void {
-    this.rootElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       this.load().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not reload file.'));
     });
-    this.rootElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
       this.save().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not save file.'));
     });
-    this.rootElement.querySelector('[data-action="download"]')?.addEventListener('click', () => this.download());
-    this.rootElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="download"]')?.addEventListener('click', () => this.download());
+    this.domElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.fitDiagram());
+    this.domElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
       this.toggleFullscreen().catch((error: unknown) =>
         this.setError(error instanceof Error ? error.message : 'Could not open full screen.')
       );
     });
     document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
-    this.rootElement.querySelector('.drawio-dialog__close')?.addEventListener('click', () => {
+    this.domElement.querySelector('.drawio-dialog__close')?.addEventListener('click', () => {
       this.close().catch(() => undefined);
     });
-    window.addEventListener('resize', this.onWindowResizeBound);
   }
 
-  private applyDialogChrome(): void {
-    setImportantStyle(this.rootElement, {
-      background: '#ffffff',
-      bottom: '0',
-      boxSizing: 'border-box',
-      height: 'auto',
-      inset: '0',
-      left: '0',
-      margin: '0',
-      maxHeight: 'none',
-      maxWidth: 'none',
-      minHeight: '0',
-      minWidth: '0',
-      overflow: 'hidden',
-      position: 'fixed',
-      right: '0',
-      top: '0',
-      width: 'auto',
-      zIndex: '1000002'
-    });
-    tagPreviewAncestors(this.domElement);
-
-    const modal = this.domElement.closest('.ms-Modal') as HTMLElement | null;
-    if (modal) {
-      setImportantStyle(modal, {
-        bottom: '0',
-        display: 'block',
-        height: '100%',
-        inset: '0',
-        maxHeight: '100%',
-        maxWidth: '100%',
-        minHeight: '100%',
-        minWidth: '100%',
-        overflow: 'hidden',
-        position: 'fixed',
-        right: '0',
-        top: '0',
-        width: '100%'
-      });
+  private makeFullViewport(): void {
+    // Fluent UI's dialog open animation applies CSS transform to ancestor elements,
+    // making them a new containing block for position:fixed children (CSS spec).
+    // Fix: clear all containing-block-creating properties on every ancestor, then
+    // measure the raw offset and apply an inverse translate to reach viewport origin.
+    let parent: HTMLElement | null = this.domElement.parentElement;
+    while (parent && parent !== document.body) {
+      parent.style.setProperty('animation', 'none', 'important');
+      parent.style.setProperty('transition', 'none', 'important');
+      parent.style.setProperty('transform', 'none', 'important');
+      parent.style.setProperty('will-change', 'auto', 'important');
+      parent.style.setProperty('filter', 'none', 'important');
+      parent.style.setProperty('perspective', 'none', 'important');
+      parent.style.setProperty('contain', 'none', 'important');
+      parent.style.setProperty('max-width', 'none', 'important');
+      parent.style.setProperty('max-height', 'none', 'important');
+      parent.style.setProperty('overflow', 'visible', 'important');
+      parent.style.setProperty('border-radius', '0', 'important');
+      parent = parent.parentElement;
     }
 
-    const focusTrap = this.domElement.closest('[data-is-focus-trap-zone="true"]') as HTMLElement | null;
-    if (focusTrap) {
-      setImportantStyle(focusTrap, {
-        height: '100%',
-        maxHeight: '100%',
-        maxWidth: '100%',
-        minHeight: '100%',
-        minWidth: '100%',
-        width: '100%'
-      });
+    const el = this.domElement;
+    el.style.setProperty('position', 'fixed', 'important');
+    el.style.setProperty('inset', '0', 'important');
+    el.style.setProperty('width', '100vw', 'important');
+    el.style.setProperty('height', '100dvh', 'important');
+    el.style.setProperty('z-index', '2147483647', 'important');
+
+    // Remove any prior compensation transform so getBoundingClientRect reflects
+    // the raw containing-block offset (not the already-translated position).
+    // removeProperty + getBoundingClientRect are synchronous; no paint occurs between.
+    el.style.removeProperty('transform');
+    const rect = el.getBoundingClientRect();
+    if (rect.left !== 0 || rect.top !== 0) {
+      el.style.setProperty('transform', `translate(${-rect.left}px,${-rect.top}px)`, 'important');
     }
+  }
 
-    const dialogMain = this.domElement.closest('.ms-Dialog-main') as HTMLElement | null;
-    if (dialogMain) {
-      dialogMain.classList.add('bpf-preview-dialog-main');
-      setImportantStyle(dialogMain, {
-        borderRadius: '0',
-        bottom: '0',
-        boxSizing: 'border-box',
-        height: 'auto',
-        inset: '0',
-        left: '0',
-        margin: '0',
-        maxHeight: 'none',
-        maxWidth: 'none',
-        minHeight: '0',
-        minWidth: '0',
-        overflow: 'hidden',
-        position: 'fixed',
-        right: '0',
-        top: '0',
-        transform: 'none',
-        width: 'auto'
-      });
-    }
-
-    const dialogInner = this.domElement.closest('.ms-Dialog-inner') as HTMLElement | null;
-    if (dialogInner) {
-      setImportantStyle(dialogInner, {
-        height: '100%',
-        maxHeight: '100%',
-        padding: '0'
-      });
-    }
-
-    const dialogContent = this.domElement.closest('.ms-Dialog-content') as HTMLElement | null;
-    if (dialogContent) {
-      setImportantStyle(dialogContent, {
-        height: '100%',
-        maxHeight: '100%'
-      });
-    }
-
-    const modalScroll = this.domElement.closest('.ms-Modal-scrollableContent') as HTMLElement | null;
-    if (modalScroll) {
-      setImportantStyle(modalScroll, {
-        height: '100%',
-        maxHeight: '100%',
-        overflow: 'hidden'
-      });
-    }
-
-    const layerContent = this.domElement.closest('.ms-Layer-content') as HTMLElement | null;
-    if (layerContent) {
-      setImportantStyle(layerContent, {
-        bottom: '0',
-        height: '100%',
-        inset: '0',
-        left: '0',
-        maxHeight: '100%',
-        maxWidth: '100%',
-        overflow: 'hidden',
-        position: 'fixed',
-        right: '0',
-        top: '0',
-        width: '100%'
-      });
-    }
-
-    this.domElement.style.display = 'none';
-    applyPreviewOverlayChrome();
-
-    if (this.rootElement.querySelector('style[data-bpf-preview-style="drawio"]')) {
+  private ensureStyles(): void {
+    if (this.domElement.querySelector('style[data-bpf-preview-style="drawio"]')) {
       return;
     }
 
     const style = document.createElement('style');
     style.dataset.bpfPreviewStyle = 'drawio';
     style.textContent = `
-      .ms-Layer [data-bpf-preview-layer="true"],
-      .ms-Layer [data-bpf-preview-modal="true"],
-      .ms-Layer [data-bpf-preview-focus-trap="true"] {
-        bottom: 0 !important;
-        height: 100% !important;
-        inset: 0 !important;
-        left: 0 !important;
-        margin: 0 !important;
-        max-height: none !important;
-        max-width: none !important;
-        min-height: 0 !important;
-        min-width: 0 !important;
-        overflow: hidden !important;
-        position: fixed !important;
-        right: 0 !important;
-        top: 0 !important;
-        transform: none !important;
-        width: auto !important;
-      }
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main {
-        bottom: 0 !important;
-        box-sizing: border-box !important;
-        border-radius: 0 !important;
-        height: auto !important;
-        inset: 0 !important;
-        left: 0 !important;
-        margin: 0 !important;
-        max-height: none !important;
-        max-width: none !important;
-        min-height: 0 !important;
-        min-width: 0 !important;
-        overflow: hidden !important;
-        position: fixed !important;
-        right: 0 !important;
-        top: 0 !important;
-        transform: none !important;
-        width: auto !important;
-      }
-      .ms-Layer .ms-Layer-content:has(.bpf-preview-dialog-main) {
-        bottom: 0 !important;
-        height: auto !important;
-        inset: 0 !important;
-        left: 0 !important;
-        max-height: none !important;
-        max-width: none !important;
-        overflow: hidden !important;
-        position: fixed !important;
-        right: 0 !important;
-        top: 0 !important;
-        width: auto !important;
-      }
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Dialog-inner,
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Dialog-content,
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Modal-scrollableContent {
-        height: 100% !important;
-        max-height: 100% !important;
-        overflow: hidden !important;
-        padding: 0 !important;
-      }
-      .bpf-preview-dialog-main:fullscreen {
-        height: 100dvh !important;
-        max-height: 100dvh !important;
-        max-width: 100dvw !important;
-        width: 100dvw !important;
-      }
       .drawio-dialog {
         background: #ffffff;
         color: #f5f5f5;
@@ -526,7 +382,7 @@ export class DrawioViewerDialog extends BaseDialog {
         min-height: 0;
         width: 100%;
       }
-      .bpf-preview-dialog-main:fullscreen .drawio-dialog {
+      :fullscreen .drawio-dialog {
         min-height: 100dvh;
       }
       @media (max-width: 720px) {
@@ -540,26 +396,16 @@ export class DrawioViewerDialog extends BaseDialog {
         }
       }
     `;
-    this.rootElement.prepend(style);
-  }
-
-  private scheduleChromeRefresh(): void {
-    window.requestAnimationFrame(() => this.applyDialogChrome());
-    window.setTimeout(() => this.applyDialogChrome(), 150);
+    this.domElement.appendChild(style);
   }
 
   private async toggleFullscreen(): Promise<void> {
-    const host = this.rootElement;
-    if (!host) {
-      return;
-    }
-
     if (document.fullscreenElement) {
       await this.exitFullscreen();
       return;
     }
 
-    await host.requestFullscreen();
+    await this.domElement.requestFullscreen();
     this.updateFullscreenButton();
   }
 
@@ -571,7 +417,7 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private updateFullscreenButton(): void {
-    const button = this.rootElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
+    const button = this.domElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
     if (!button) {
       return;
     }
@@ -580,15 +426,20 @@ export class DrawioViewerDialog extends BaseDialog {
     button.innerHTML = renderIcon(isFullscreen ? 'restore' : 'external');
     button.setAttribute('aria-label', isFullscreen ? 'Exit full screen' : 'Open full screen');
     button.title = isFullscreen ? 'Exit full screen' : 'Open full screen';
+
+    // Reload the diagram into the expanded viewport so diagrams.net auto-fits on entry.
+    if (isFullscreen) {
+      window.setTimeout(() => this.sendLoadMessage(), 200);
+    }
   }
 
   private isEditable(): boolean {
-    return true;
+    return this.extensionSettings.mode === 'modeler';
   }
 
   private setBusy(isBusy: boolean, status: string): void {
     this.setStatus(status);
-    this.rootElement.querySelectorAll('.drawio-dialog__button').forEach((button) => {
+    this.domElement.querySelectorAll('.drawio-dialog__button').forEach((button) => {
       const typedButton = button as HTMLButtonElement;
       if (typedButton.dataset.action === 'save') {
         typedButton.disabled = isBusy || !this.isEditable();
@@ -599,14 +450,14 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private setStatus(status: string): void {
-    const statusElement = this.rootElement.querySelector('[data-role="status"]') as HTMLElement | null;
+    const statusElement = this.domElement.querySelector('[data-role="status"]') as HTMLElement | null;
     if (statusElement) {
       statusElement.textContent = status;
     }
   }
 
   private setMessage(message: string): void {
-    const messageElement = this.rootElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -617,7 +468,7 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private setError(message: string): void {
-    const messageElement = this.rootElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -628,7 +479,7 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private renderMetadata(): void {
-    const nameElement = this.rootElement.querySelector('.drawio-dialog__name') as HTMLElement | null;
+    const nameElement = this.domElement.querySelector('.drawio-dialog__name') as HTMLElement | null;
     if (!nameElement || !this.metadata) {
       return;
     }
@@ -645,28 +496,10 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private updateSaveButton(): void {
-    const saveButton = this.rootElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
+    const saveButton = this.domElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
     if (saveButton) {
       saveButton.disabled = !this.isEditable();
     }
-  }
-
-  private get rootElement(): HTMLElement {
-    return this.hostElement || this.domElement;
-  }
-
-  private ensureHostElement(): HTMLElement {
-    if (this.hostElement) {
-      return this.hostElement;
-    }
-
-    const hostElement = document.createElement('div');
-    hostElement.className = 'bpf-preview-portal bpf-preview-portal--drawio';
-    document.body.appendChild(hostElement);
-    this.hostElement = hostElement;
-    this.domElement.innerHTML = '';
-    this.domElement.style.display = 'none';
-    return hostElement;
   }
 }
 
@@ -709,42 +542,4 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
-}
-
-function renderIcon(name: string): string {
-  const paths: Record<string, string> = {
-    download: '<path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M5 21h14" />',
-    external: '<path d="M14 3h7v7" /><path d="M21 3l-9 9" /><path d="M19 14v5H5V5h5" />',
-    refresh: '<path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M18 9a6 6 0 0 0-10-3L4 10" /><path d="M6 15a6 6 0 0 0 10 3l4-4" />',
-    restore: '<path d="M9 3H4v5" /><path d="M4 3l7 7" /><path d="M15 21h5v-5" /><path d="M20 21l-7-7" />',
-    save: '<path d="M5 3h12l2 2v16H5z" /><path d="M8 3v6h8" /><path d="M8 21v-7h8v7" />'
-  };
-
-  return `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths[name] || ''}</svg>`;
-}
-
-function tagPreviewAncestors(root: HTMLElement): void {
-  (root.closest('.ms-Layer-content') as HTMLElement | null)?.setAttribute('data-bpf-preview-layer', 'true');
-  (root.closest('.ms-Modal') as HTMLElement | null)?.setAttribute('data-bpf-preview-modal', 'true');
-  (root.closest('[data-is-focus-trap-zone="true"]') as HTMLElement | null)?.setAttribute(
-    'data-bpf-preview-focus-trap',
-    'true'
-  );
-}
-
-function setImportantStyle(element: HTMLElement, styles: Record<string, string>): void {
-  Object.keys(styles).forEach((propertyName) => {
-    element.style.setProperty(toCssPropertyName(propertyName), styles[propertyName], 'important');
-  });
-}
-
-function toCssPropertyName(propertyName: string): string {
-  return propertyName.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
-}
-
-function applyPreviewOverlayChrome(): void {
-  const overlays = Array.from(document.querySelectorAll('.ms-Overlay, [data-is-focus-trap-zone] + .ms-Overlay')) as HTMLElement[];
-  overlays.forEach((overlay) => {
-    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.72)';
-  });
 }

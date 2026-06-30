@@ -41,6 +41,12 @@ export class SharePointFileService {
     return await response.text();
   }
 
+  public async getContentAsArrayBuffer(serverRelativeUrl: string): Promise<ArrayBuffer> {
+    const response = await this.spHttpClient.get(`${this.fileApiUrl(serverRelativeUrl)}/$value`, SPHttpClient.configurations.v1);
+    await assertOk(response);
+    return await response.arrayBuffer();
+  }
+
   public async saveContent(serverRelativeUrl: string, xml: string, eTag?: string): Promise<ISharePointFileMetadata> {
     const response = await this.spHttpClient.post(`${this.fileApiUrl(serverRelativeUrl)}/$value`, SPHttpClient.configurations.v1, {
       body: xml,

@@ -2,6 +2,9 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$TenantRootUrl,
 
+  [Parameter(Mandatory = $true)]
+  [string]$PnPClientId,
+
   [string]$ConfigSiteUrl = "",
 
   [string]$AdminPageName = "FilePreviewAdmin.aspx",
@@ -15,8 +18,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$AppVersion = "1.4.18"
-$ClientID = "a53c4564-ac7f-48c8-ab09-c447875beb17"
+$AppVersion = "1.5.21"
 $SolutionPackageName = "spfx-bpmn-command-set.sppkg"
 $CommandSetComponentId = "c3e13f04-c3e1-4b55-8fd5-d7557cd15752"
 $AdminApplicationCustomizerComponentId = "6da1de09-f3e8-4d81-a60b-0bf2c8c65be4"
@@ -29,7 +31,7 @@ $IconAssetsSourcePath = Join-Path $PSScriptRoot "..\sharepoint\assets\file-handl
 $IconAssetsSiteRelativeFolder = "SiteAssets/M365FilePreviewIcons"
 
 $DefaultSettingsJson = @'
-{"appBaseUrl":"","extensions":[{"displayName":"BPMN process diagram","enabled":true,"extension":".bpmn","mode":"modeler","renderer":"bpmn-js"},{"displayName":"JT 3D model","enabled":false,"extension":".jt","mode":"viewer","renderer":"coming-soon"},{"displayName":"diagrams.net drawing","enabled":true,"extension":".drawio","mode":"modeler","renderer":"diagrams-net-embed"},{"displayName":"STEP CAD model","enabled":false,"extension":".step","mode":"viewer","renderer":"coming-soon"}],"fileHandlerEnabled":false,"license":{"declaredUserCount":20,"freeUserLimit":20,"key":"","tier":"Free"},"schemaVersion":1}
+{"appBaseUrl":"","extensions":[{"displayName":"BPMN process diagram","enabled":true,"extension":".bpmn","mode":"modeler","renderer":"bpmn-js"},{"displayName":"JT 3D model","enabled":false,"extension":".jt","mode":"viewer","renderer":"coming-soon"},{"displayName":"diagrams.net drawing","enabled":false,"extension":".drawio","mode":"modeler","renderer":"diagrams-net-embed"},{"displayName":"Mermaid diagram","enabled":false,"extension":".mmd","mode":"viewer","renderer":"mermaid-js"},{"displayName":"Mermaid diagram (.mermaid)","enabled":false,"extension":".mermaid","mode":"viewer","renderer":"mermaid-js"},{"displayName":"IFC building model","enabled":false,"extension":".ifc","mode":"viewer","renderer":"web-ifc"},{"displayName":"STEP CAD model (.step)","enabled":false,"extension":".step","mode":"viewer","renderer":"occt-step"},{"displayName":"STEP CAD model (.stp)","enabled":false,"extension":".stp","mode":"viewer","renderer":"occt-step"}],"fileHandlerEnabled":false,"license":{"declaredUserCount":20,"freeUserLimit":20,"key":"","tier":"Free"},"schemaVersion":1}
 '@
 
 function Ensure-Module {
@@ -43,7 +45,7 @@ function Ensure-ConfigList {
     [string]$TargetSiteUrl
   )
 
-  Connect-PnPOnline -Url $TargetSiteUrl -Interactive -ClientId $ClientID
+  Connect-PnPOnline -Url $TargetSiteUrl -Interactive -ClientId $PnPClientId
 
   $list = Get-PnPList -Identity $ConfigListTitle -ErrorAction SilentlyContinue
   if ($null -eq $list) {
@@ -71,7 +73,7 @@ function Ensure-FileHandlerIcons {
     [string]$TargetSiteUrl
   )
 
-  Connect-PnPOnline -Url $TargetSiteUrl -Interactive -ClientId $ClientID
+  Connect-PnPOnline -Url $TargetSiteUrl -Interactive -ClientId $PnPClientId
 
   if (-not (Test-Path -LiteralPath $IconAssetsSourcePath)) {
     Write-Warning "File handler icon source folder was not found: $IconAssetsSourcePath"
@@ -105,9 +107,18 @@ function Repair-PreviewSettingsConfig {
   }
 
   $changed = $false
+  # Required: must exist and be enabled. Do not change enabled state for optional extensions
+  # (diagrams.net transfers file XML to an external service — admin must opt-in explicitly).
   $requiredExtensions = @(
-    @{ displayName = "BPMN process diagram"; enabled = $true; extension = ".bpmn"; mode = "modeler"; renderer = "bpmn-js" },
-    @{ displayName = "diagrams.net drawing"; enabled = $true; extension = ".drawio"; mode = "modeler"; renderer = "diagrams-net-embed" }
+    @{ displayName = "BPMN process diagram"; enabled = $true; extension = ".bpmn"; mode = "modeler"; renderer = "bpmn-js" }
+  )
+  $optionalExtensions = @(
+    @{ displayName = "diagrams.net drawing"; enabled = $false; extension = ".drawio"; mode = "modeler"; renderer = "diagrams-net-embed" },
+    @{ displayName = "Mermaid diagram"; enabled = $false; extension = ".mmd"; mode = "viewer"; renderer = "mermaid-js" },
+    @{ displayName = "Mermaid diagram (.mermaid)"; enabled = $false; extension = ".mermaid"; mode = "viewer"; renderer = "mermaid-js" },
+    @{ displayName = "IFC building model"; enabled = $false; extension = ".ifc"; mode = "viewer"; renderer = "web-ifc" },
+    @{ displayName = "STEP CAD model (.step)"; enabled = $false; extension = ".step"; mode = "viewer"; renderer = "occt-step" },
+    @{ displayName = "STEP CAD model (.stp)"; enabled = $false; extension = ".stp"; mode = "viewer"; renderer = "occt-step" }
   )
 
   if ($null -eq $settings.extensions) {
@@ -137,10 +148,19 @@ function Repair-PreviewSettingsConfig {
     }
   }
 
+  foreach ($optionalExtension in $optionalExtensions) {
+    $extensionSettings = $settings.extensions | Where-Object { [string]$_.extension -eq $optionalExtension.extension } | Select-Object -First 1
+    if ($null -eq $extensionSettings) {
+      $settings.extensions = @($settings.extensions) + [pscustomobject]$optionalExtension
+      $changed = $true
+    }
+    # If already present, respect the admin's enabled/disabled choice — do not override.
+  }
+
   if ($changed) {
     $updatedConfig = $settings | ConvertTo-Json -Depth 20 -Compress
     Set-PnPListItem -List $ConfigListTitle -Identity $ConfigItem.Id -Values @{ $ConfigFieldName = $updatedConfig } | Out-Null
-    Write-Host "Updated file preview settings so .bpmn and .drawio are enabled."
+    Write-Host "Updated file preview settings configuration."
   }
 }
 
@@ -217,13 +237,17 @@ function Get-ListItemFieldValue {
   return $null
 }
 
+# NOTE: With skipFeatureDeployment:true, the sppkg auto-registers components via
+# ClientSideInstance.xml when deployed to the app catalog. Use Ensure-TenantWideCommand
+# only to update properties (e.g., configSiteUrl) on existing registrations, or if
+# the automatic registration from ClientSideInstance.xml did not apply as expected.
 function Ensure-TenantWideCommand {
   param(
     [string]$AppCatalogSiteUrl,
     [string]$TargetConfigSiteUrl
   )
 
-  Connect-PnPOnline -Url $AppCatalogSiteUrl -Interactive -ClientId $ClientID
+  Connect-PnPOnline -Url $AppCatalogSiteUrl -Interactive -ClientId $PnPClientId
 
   $commandSetProperties = @{ configSiteUrl = $TargetConfigSiteUrl; showSettingsCommand = $false } | ConvertTo-Json -Compress
   $adminLauncherProperties = @{ configSiteUrl = $TargetConfigSiteUrl; showOnAllSites = $false } | ConvertTo-Json -Compress
@@ -394,7 +418,7 @@ function Ensure-AdminPage {
     [string]$TargetConfigSiteUrl
   )
 
-  Connect-PnPOnline -Url $AdminSiteUrl -Interactive -ClientId $ClientID
+  Connect-PnPOnline -Url $AdminSiteUrl -Interactive -ClientId $PnPClientId
 
   Remove-AdminPageIfBroken -AdminSiteUrl $AdminSiteUrl
 
@@ -427,7 +451,7 @@ function Ensure-AdminPage {
 
 Ensure-Module
 
-Connect-PnPOnline -Url $TenantRootUrl -Interactive -ClientId $ClientID
+Connect-PnPOnline -Url $TenantRootUrl -Interactive -ClientId $PnPClientId
 $tenantSettings = Invoke-PnPSPRestMethod -Url "$TenantRootUrl/_api/SP_TenantSettings_Current" -Method Get
 $AppCatalogSiteUrl = $tenantSettings.CorporateCatalogUrl
 if ([string]::IsNullOrWhiteSpace($AppCatalogSiteUrl)) {
@@ -439,7 +463,7 @@ if ([string]::IsNullOrWhiteSpace($ConfigSiteUrl)) {
 }
 
 if ($UploadPackage) {
-  Connect-PnPOnline -Url $AppCatalogSiteUrl -Interactive -ClientId $ClientID
+  Connect-PnPOnline -Url $AppCatalogSiteUrl -Interactive -ClientId $PnPClientId
   Add-PnPApp -Path $PackagePath -Scope Tenant -Overwrite -Publish | Out-Null
   Write-Host "Uploaded package $SolutionPackageName version $AppVersion."
 }

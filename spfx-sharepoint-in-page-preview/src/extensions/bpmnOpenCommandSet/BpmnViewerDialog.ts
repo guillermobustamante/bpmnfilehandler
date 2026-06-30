@@ -5,6 +5,7 @@ import BpmnViewer from 'bpmn-js/lib/NavigatedViewer';
 import { ensureBpmnAssetStyles } from './bpmnAssetStyles';
 import type { IFileExtensionSettings } from './previewSettings';
 import { SharePointFileService, type ISharePointFileMetadata } from './sharePointFileService';
+import { renderIcon } from '../../shared/icons';
 
 type BpmnInstance = BpmnModeler | BpmnViewer;
 
@@ -12,13 +13,8 @@ export class BpmnViewerDialog extends BaseDialog {
   private bpmnInstance: BpmnInstance | undefined;
   private canvasElement: HTMLElement | undefined;
   private fileService: SharePointFileService;
-  private hostElement: HTMLElement | undefined;
   private isDirty: boolean = false;
   private metadata: ISharePointFileMetadata | undefined;
-  private readonly onWindowResizeBound = (): void => {
-    this.applyDialogChrome();
-    this.fitDiagram();
-  };
   private resizeObserver: ResizeObserver | undefined;
   private xml: string = '';
 
@@ -36,8 +32,11 @@ export class BpmnViewerDialog extends BaseDialog {
   public render(): void {
     ensureBpmnAssetStyles();
 
-    const root = this.ensureHostElement();
-    root.innerHTML = `
+    this.domElement.style.cssText = 'box-sizing:border-box;display:flex;flex-direction:column;height:100dvh;inset:0;overflow:hidden;position:fixed;width:100vw;z-index:2147483647;';
+    this.makeFullViewport();
+    window.requestAnimationFrame(() => this.makeFullViewport());
+    window.setTimeout(() => this.makeFullViewport(), 300);
+    this.domElement.innerHTML = `
       <div class="bpmn-dialog">
         <div class="bpmn-dialog__header">
           <div class="bpmn-dialog__title">
@@ -78,9 +77,8 @@ export class BpmnViewerDialog extends BaseDialog {
       </div>
     `;
 
-    this.applyDialogChrome();
-    this.scheduleChromeRefresh();
-    this.canvasElement = this.rootElement.querySelector('[data-role="canvas"]') as HTMLElement | undefined;
+    this.ensureStyles();
+    this.canvasElement = this.domElement.querySelector('[data-role="canvas"]') as HTMLElement | undefined;
     this.wireEvents();
     this.load().catch((error: unknown) => {
       this.setError(error instanceof Error ? error.message : 'Could not open the selected file.');
@@ -95,13 +93,9 @@ export class BpmnViewerDialog extends BaseDialog {
 
   protected onAfterClose(): void {
     this.exitFullscreen().catch(() => undefined);
-    window.removeEventListener('resize', this.onWindowResizeBound);
     this.resizeObserver?.disconnect();
     this.resizeObserver = undefined;
     this.destroyRenderer();
-    this.hostElement?.remove();
-    this.hostElement = undefined;
-    this.domElement.innerHTML = '';
     super.onAfterClose();
   }
 
@@ -232,228 +226,78 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private wireEvents(): void {
-    this.rootElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       this.load().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not reload file.'));
     });
-    this.rootElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
       this.save().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not save file.'));
     });
-    this.rootElement.querySelector('[data-action="validate"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="validate"]')?.addEventListener('click', () => {
       this.validate().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not validate file.'));
     });
-    this.rootElement.querySelector('[data-action="download"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="download"]')?.addEventListener('click', () => {
       this.download().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not download file.'));
     });
-    this.rootElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
       this.toggleFullscreen().catch((error: unknown) =>
         this.setError(error instanceof Error ? error.message : 'Could not open full screen.')
       );
     });
     document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
-    this.rootElement.querySelector('[data-action="zoom-out"]')?.addEventListener('click', () => this.zoom(0.8));
-    this.rootElement.querySelector('[data-action="zoom-in"]')?.addEventListener('click', () => this.zoom(1.2));
-    this.rootElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.zoom('fit-viewport'));
-    this.rootElement.querySelector('.bpmn-dialog__close')?.addEventListener('click', () => {
+    this.domElement.querySelector('[data-action="zoom-out"]')?.addEventListener('click', () => this.zoom(0.8));
+    this.domElement.querySelector('[data-action="zoom-in"]')?.addEventListener('click', () => this.zoom(1.2));
+    this.domElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.zoom('fit-viewport'));
+    this.domElement.querySelector('.bpmn-dialog__close')?.addEventListener('click', () => {
       this.close().catch(() => undefined);
     });
-    window.addEventListener('resize', this.onWindowResizeBound);
   }
 
-  private applyDialogChrome(): void {
-    setImportantStyle(this.rootElement, {
-      background: '#ffffff',
-      bottom: '0',
-      boxSizing: 'border-box',
-      height: 'auto',
-      inset: '0',
-      left: '0',
-      margin: '0',
-      maxHeight: 'none',
-      maxWidth: 'none',
-      minHeight: '0',
-      minWidth: '0',
-      overflow: 'hidden',
-      position: 'fixed',
-      right: '0',
-      top: '0',
-      width: 'auto',
-      zIndex: '1000002'
-    });
-    tagPreviewAncestors(this.domElement);
-
-    const modal = this.domElement.closest('.ms-Modal') as HTMLElement | null;
-    if (modal) {
-      setImportantStyle(modal, {
-        bottom: '0',
-        display: 'block',
-        height: '100%',
-        inset: '0',
-        maxHeight: '100%',
-        maxWidth: '100%',
-        minHeight: '100%',
-        minWidth: '100%',
-        overflow: 'hidden',
-        position: 'fixed',
-        right: '0',
-        top: '0',
-        width: '100%'
-      });
+  private makeFullViewport(): void {
+    // Fluent UI's dialog open animation applies CSS transform to ancestor elements,
+    // making them a new containing block for position:fixed children (CSS spec).
+    // Fix: clear all containing-block-creating properties on every ancestor, then
+    // measure the raw offset and apply an inverse translate to reach viewport origin.
+    let parent: HTMLElement | null = this.domElement.parentElement;
+    while (parent && parent !== document.body) {
+      parent.style.setProperty('animation', 'none', 'important');
+      parent.style.setProperty('transition', 'none', 'important');
+      parent.style.setProperty('transform', 'none', 'important');
+      parent.style.setProperty('will-change', 'auto', 'important');
+      parent.style.setProperty('filter', 'none', 'important');
+      parent.style.setProperty('perspective', 'none', 'important');
+      parent.style.setProperty('contain', 'none', 'important');
+      parent.style.setProperty('max-width', 'none', 'important');
+      parent.style.setProperty('max-height', 'none', 'important');
+      parent.style.setProperty('overflow', 'visible', 'important');
+      parent.style.setProperty('border-radius', '0', 'important');
+      parent = parent.parentElement;
     }
 
-    const focusTrap = this.domElement.closest('[data-is-focus-trap-zone="true"]') as HTMLElement | null;
-    if (focusTrap) {
-      setImportantStyle(focusTrap, {
-        height: '100%',
-        maxHeight: '100%',
-        maxWidth: '100%',
-        minHeight: '100%',
-        minWidth: '100%',
-        width: '100%'
-      });
+    const el = this.domElement;
+    el.style.setProperty('position', 'fixed', 'important');
+    el.style.setProperty('inset', '0', 'important');
+    el.style.setProperty('width', '100vw', 'important');
+    el.style.setProperty('height', '100dvh', 'important');
+    el.style.setProperty('z-index', '2147483647', 'important');
+
+    // Remove any prior compensation transform so getBoundingClientRect reflects
+    // the raw containing-block offset (not the already-translated position).
+    // removeProperty + getBoundingClientRect are synchronous; no paint occurs between.
+    el.style.removeProperty('transform');
+    const rect = el.getBoundingClientRect();
+    if (rect.left !== 0 || rect.top !== 0) {
+      el.style.setProperty('transform', `translate(${-rect.left}px,${-rect.top}px)`, 'important');
     }
+  }
 
-    const dialogMain = this.domElement.closest('.ms-Dialog-main') as HTMLElement | null;
-    if (dialogMain) {
-      dialogMain.classList.add('bpf-preview-dialog-main');
-      setImportantStyle(dialogMain, {
-        borderRadius: '0',
-        bottom: '0',
-        boxSizing: 'border-box',
-        height: 'auto',
-        inset: '0',
-        left: '0',
-        margin: '0',
-        maxHeight: 'none',
-        maxWidth: 'none',
-        minHeight: '0',
-        minWidth: '0',
-        overflow: 'hidden',
-        position: 'fixed',
-        right: '0',
-        top: '0',
-        transform: 'none',
-        width: 'auto'
-      });
-    }
-
-    const dialogInner = this.domElement.closest('.ms-Dialog-inner') as HTMLElement | null;
-    if (dialogInner) {
-      setImportantStyle(dialogInner, {
-        height: '100%',
-        maxHeight: '100%',
-        padding: '0'
-      });
-    }
-
-    const dialogContent = this.domElement.closest('.ms-Dialog-content') as HTMLElement | null;
-    if (dialogContent) {
-      setImportantStyle(dialogContent, {
-        height: '100%',
-        maxHeight: '100%'
-      });
-    }
-
-    const modalScroll = this.domElement.closest('.ms-Modal-scrollableContent') as HTMLElement | null;
-    if (modalScroll) {
-      setImportantStyle(modalScroll, {
-        height: '100%',
-        maxHeight: '100%',
-        overflow: 'hidden'
-      });
-    }
-
-    const layerContent = this.domElement.closest('.ms-Layer-content') as HTMLElement | null;
-    if (layerContent) {
-      setImportantStyle(layerContent, {
-        bottom: '0',
-        height: '100%',
-        inset: '0',
-        left: '0',
-        maxHeight: '100%',
-        maxWidth: '100%',
-        overflow: 'hidden',
-        position: 'fixed',
-        right: '0',
-        top: '0',
-        width: '100%'
-      });
-    }
-
-    this.domElement.style.display = 'none';
-    applyPreviewOverlayChrome();
-
-    if (this.rootElement.querySelector('style[data-bpf-preview-style="bpmn"]')) {
+  private ensureStyles(): void {
+    if (this.domElement.querySelector('style[data-bpf-preview-style="bpmn"]')) {
       return;
     }
 
     const style = document.createElement('style');
     style.dataset.bpfPreviewStyle = 'bpmn';
     style.textContent = `
-      .ms-Layer [data-bpf-preview-layer="true"],
-      .ms-Layer [data-bpf-preview-modal="true"],
-      .ms-Layer [data-bpf-preview-focus-trap="true"] {
-        bottom: 0 !important;
-        height: 100% !important;
-        inset: 0 !important;
-        left: 0 !important;
-        margin: 0 !important;
-        max-height: none !important;
-        max-width: none !important;
-        min-height: 0 !important;
-        min-width: 0 !important;
-        overflow: hidden !important;
-        position: fixed !important;
-        right: 0 !important;
-        top: 0 !important;
-        transform: none !important;
-        width: auto !important;
-      }
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main {
-        bottom: 0 !important;
-        box-sizing: border-box !important;
-        border-radius: 0 !important;
-        height: auto !important;
-        inset: 0 !important;
-        left: 0 !important;
-        margin: 0 !important;
-        max-height: none !important;
-        max-width: none !important;
-        min-height: 0 !important;
-        min-width: 0 !important;
-        overflow: hidden !important;
-        position: fixed !important;
-        right: 0 !important;
-        top: 0 !important;
-        transform: none !important;
-        width: auto !important;
-      }
-      .ms-Layer .ms-Layer-content:has(.bpf-preview-dialog-main) {
-        bottom: 0 !important;
-        height: auto !important;
-        inset: 0 !important;
-        left: 0 !important;
-        max-height: none !important;
-        max-width: none !important;
-        overflow: hidden !important;
-        position: fixed !important;
-        right: 0 !important;
-        top: 0 !important;
-        width: auto !important;
-      }
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Dialog-inner,
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Dialog-content,
-      .ms-Layer .ms-Dialog-main.bpf-preview-dialog-main .ms-Modal-scrollableContent {
-        height: 100% !important;
-        max-height: 100% !important;
-        overflow: hidden !important;
-        padding: 0 !important;
-      }
-      .bpf-preview-dialog-main:fullscreen {
-        height: 100dvh !important;
-        max-height: 100dvh !important;
-        max-width: 100dvw !important;
-        width: 100dvw !important;
-      }
       .bpmn-dialog {
         background: #ffffff;
         color: #f5f5f5;
@@ -576,7 +420,7 @@ export class BpmnViewerDialog extends BaseDialog {
         height: 100% !important;
         width: 100% !important;
       }
-      .bpf-preview-dialog-main:fullscreen .bpmn-dialog {
+      :fullscreen .bpmn-dialog {
         min-height: 100dvh;
       }
       @media (max-width: 720px) {
@@ -590,32 +434,16 @@ export class BpmnViewerDialog extends BaseDialog {
         }
       }
     `;
-    this.rootElement.prepend(style);
-  }
-
-  private scheduleChromeRefresh(): void {
-    window.requestAnimationFrame(() => {
-      this.applyDialogChrome();
-      this.fitDiagram();
-    });
-    window.setTimeout(() => {
-      this.applyDialogChrome();
-      this.fitDiagram();
-    }, 150);
+    this.domElement.appendChild(style);
   }
 
   private async toggleFullscreen(): Promise<void> {
-    const host = this.rootElement;
-    if (!host) {
-      return;
-    }
-
     if (document.fullscreenElement) {
       await this.exitFullscreen();
       return;
     }
 
-    await host.requestFullscreen();
+    await this.domElement.requestFullscreen();
     this.updateFullscreenButton();
   }
 
@@ -627,7 +455,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private updateFullscreenButton(): void {
-    const button = this.rootElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
+    const button = this.domElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
     if (!button) {
       return;
     }
@@ -651,7 +479,7 @@ export class BpmnViewerDialog extends BaseDialog {
 
   private setBusy(isBusy: boolean, status: string): void {
     this.setStatus(status);
-    this.rootElement.querySelectorAll('.bpmn-dialog__button').forEach((button) => {
+    this.domElement.querySelectorAll('.bpmn-dialog__button').forEach((button) => {
       const typedButton = button as HTMLButtonElement;
       if (typedButton.dataset.action === 'save') {
         typedButton.disabled = isBusy || !this.isDirty || !this.isEditable();
@@ -662,7 +490,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setStatus(status: string): void {
-    const statusElement = this.rootElement.querySelector('[data-role="status"]') as HTMLElement | null;
+    const statusElement = this.domElement.querySelector('[data-role="status"]') as HTMLElement | null;
     if (statusElement) {
       statusElement.textContent = status;
     }
@@ -678,7 +506,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setMessage(message: string): void {
-    const messageElement = this.rootElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -689,7 +517,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setError(message: string): void {
-    const messageElement = this.rootElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -700,7 +528,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private renderMetadata(): void {
-    const nameElement = this.rootElement.querySelector('.bpmn-dialog__name') as HTMLElement | null;
+    const nameElement = this.domElement.querySelector('.bpmn-dialog__name') as HTMLElement | null;
     if (!nameElement || !this.metadata) {
       return;
     }
@@ -717,28 +545,10 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private updateSaveButton(): void {
-    const saveButton = this.rootElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
+    const saveButton = this.domElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
     if (saveButton) {
       saveButton.disabled = !this.isDirty || !this.isEditable();
     }
-  }
-
-  private get rootElement(): HTMLElement {
-    return this.hostElement || this.domElement;
-  }
-
-  private ensureHostElement(): HTMLElement {
-    if (this.hostElement) {
-      return this.hostElement;
-    }
-
-    const hostElement = document.createElement('div');
-    hostElement.className = 'bpf-preview-portal bpf-preview-portal--bpmn';
-    document.body.appendChild(hostElement);
-    this.hostElement = hostElement;
-    this.domElement.innerHTML = '';
-    this.domElement.style.display = 'none';
-    return hostElement;
   }
 }
 
@@ -765,46 +575,4 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
-}
-
-function renderIcon(name: string): string {
-  const paths: Record<string, string> = {
-    check: '<path d="M5 12l4 4L19 6" />',
-    download: '<path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M5 21h14" />',
-    external: '<path d="M14 3h7v7" /><path d="M21 3l-9 9" /><path d="M19 14v5H5V5h5" />',
-    maximize: '<path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" />',
-    refresh: '<path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M18 9a6 6 0 0 0-10-3L4 10" /><path d="M6 15a6 6 0 0 0 10 3l4-4" />',
-    restore: '<path d="M9 3H4v5" /><path d="M4 3l7 7" /><path d="M15 21h5v-5" /><path d="M20 21l-7-7" />',
-    save: '<path d="M5 3h12l2 2v16H5z" /><path d="M8 3v6h8" /><path d="M8 21v-7h8v7" />',
-    zoomIn: '<circle cx="10.5" cy="10.5" r="6.5" /><path d="M10.5 7.5v6" /><path d="M7.5 10.5h6" /><path d="M15.5 15.5L21 21" />',
-    zoomOut: '<circle cx="10.5" cy="10.5" r="6.5" /><path d="M7.5 10.5h6" /><path d="M15.5 15.5L21 21" />'
-  };
-
-  return `<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths[name] || ''}</svg>`;
-}
-
-function tagPreviewAncestors(root: HTMLElement): void {
-  (root.closest('.ms-Layer-content') as HTMLElement | null)?.setAttribute('data-bpf-preview-layer', 'true');
-  (root.closest('.ms-Modal') as HTMLElement | null)?.setAttribute('data-bpf-preview-modal', 'true');
-  (root.closest('[data-is-focus-trap-zone="true"]') as HTMLElement | null)?.setAttribute(
-    'data-bpf-preview-focus-trap',
-    'true'
-  );
-}
-
-function setImportantStyle(element: HTMLElement, styles: Record<string, string>): void {
-  Object.keys(styles).forEach((propertyName) => {
-    element.style.setProperty(toCssPropertyName(propertyName), styles[propertyName], 'important');
-  });
-}
-
-function toCssPropertyName(propertyName: string): string {
-  return propertyName.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
-}
-
-function applyPreviewOverlayChrome(): void {
-  const overlays = Array.from(document.querySelectorAll('.ms-Overlay, [data-is-focus-trap-zone] + .ms-Overlay')) as HTMLElement[];
-  overlays.forEach((overlay) => {
-    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.72)';
-  });
 }
