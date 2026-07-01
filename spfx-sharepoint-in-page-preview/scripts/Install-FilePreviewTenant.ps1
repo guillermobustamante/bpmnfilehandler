@@ -18,7 +18,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$AppVersion = "1.5.21"
+$AppVersion = "1.6.2"
 $SolutionPackageName = "spfx-bpmn-command-set.sppkg"
 $CommandSetComponentId = "c3e13f04-c3e1-4b55-8fd5-d7557cd15752"
 $AdminApplicationCustomizerComponentId = "6da1de09-f3e8-4d81-a60b-0bf2c8c65be4"

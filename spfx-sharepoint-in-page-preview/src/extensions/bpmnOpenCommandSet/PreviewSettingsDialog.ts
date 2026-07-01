@@ -42,6 +42,8 @@ export class PreviewSettingsDialog extends BaseDialog {
   public render(): void {
     const registerScript = buildRegisterFileHandlerScript(this.draftSettings, this.scriptContext);
     const cleanupScript = buildCleanupFileHandlerScript(this.draftSettings, this.scriptContext);
+    const handlerStatus = getHandlerStatusInfo(this.draftSettings);
+    const nativeExtHtml = renderNativeHandlerExtensionsHtml(this.draftSettings);
     this.domElement.innerHTML = `
       <div class="bpf-admin">
         <div class="bpf-admin__header">
@@ -105,19 +107,31 @@ export class PreviewSettingsDialog extends BaseDialog {
           </section>
 
           <section class="bpf-admin__card">
-            <h3 class="bpf-admin__card-title">Optional native Microsoft 365 File Handler</h3>
+            <div class="bpf-admin__card-header">
+              <h3 class="bpf-admin__card-title">Native Microsoft 365 File Handler</h3>
+              <span class="bpf-admin__tag-optional">Optional</span>
+              <span data-role="handler-status" class="${handlerStatus.cssClass}">${escapeHtml(handlerStatus.text)}</span>
+            </div>
+            <p class="bpf-admin__card-desc">
+              Enables Microsoft's built-in open and preview in <strong>OneDrive, Teams, and Outlook</strong> — beyond the SharePoint document library preview this SPFx package already provides.
+              Requires a separately deployed <strong>Azure Static Web App</strong>. Only <strong>.bpmn</strong> and <strong>.drawio</strong> support native File Handler registration.
+            </p>
+            <p data-role="handler-extensions" class="bpf-admin__hint">${nativeExtHtml}</p>
             <label class="bpf-admin__field">
-              <span class="bpf-admin__label">File Handler endpoint URL</span>
-              <input class="bpf-admin__input" data-field="appBaseUrl" type="url" placeholder="https://your-handler.example.com" value="${escapeAttribute(this.draftSettings.appBaseUrl)}" />
+              <span class="bpf-admin__label">Azure Static Web App endpoint URL</span>
+              <input class="bpf-admin__input" data-field="appBaseUrl" type="url"
+                     placeholder="https://[your-app].azurestaticapps.net"
+                     value="${escapeAttribute(this.draftSettings.appBaseUrl)}" />
+              <span class="bpf-admin__hint">Base URL of the deployed Azure Static Web App. Leave blank if not using native File Handler.</span>
             </label>
             <label class="bpf-admin__toggle-row">
               <span class="bpf-admin__toggle">
                 <input data-field="fileHandlerEnabled" type="checkbox" ${this.draftSettings.fileHandlerEnabled ? 'checked' : ''} />
                 <span class="bpf-admin__toggle-track"></span>
               </span>
-              <span class="bpf-admin__toggle-label">Native File Handler has been registered by an admin</span>
+              <span class="bpf-admin__toggle-label">Native File Handler is registered in Entra ID</span>
             </label>
-            <p class="bpf-admin__hint">The SharePoint command (Open BPMN / Open DrawIO) is self-contained in this SPFx package and does not require Azure. Native File Handler registration is optional and controls Microsoft's built-in file preview flow.</p>
+            <p class="bpf-admin__hint">Check this after running the registration script below and granting admin consent. Informational only — stored in the config list so other tenant admins can track status. Does not affect the SharePoint in-page preview.</p>
           </section>
 
           <div class="bpf-admin__warning" role="alert">
@@ -126,20 +140,20 @@ export class PreviewSettingsDialog extends BaseDialog {
 
           <details class="bpf-admin__card bpf-admin__collapsible">
             <summary class="bpf-admin__collapsible-summary">
-              <span class="bpf-admin__card-title">Native File Handler cleanup script</span>
-              <button class="bpf-admin__copy-btn" data-action="copy-cleanup-script" type="button">Copy</button>
+              <span class="bpf-admin__card-title">Native File Handler registration script</span>
+              <button class="bpf-admin__copy-btn" data-action="copy-register-script" type="button">Copy</button>
             </summary>
-            <p class="bpf-admin__hint">Use this if Microsoft's built-in preview still opens an old Azure File Handler. Removes matching add-ins from Entra; does not affect the SPFx renderer.</p>
-            <textarea class="bpf-admin__script" data-role="cleanup-script" readonly>${escapeHtml(cleanupScript)}</textarea>
+            <p class="bpf-admin__hint">Run once to register .bpmn and .drawio as native Microsoft 365 file types in OneDrive and Teams. Requires the endpoint URL above. The SharePoint in-page preview does not need this script.</p>
+            <textarea class="bpf-admin__script" data-role="register-script" readonly>${escapeHtml(registerScript)}</textarea>
           </details>
 
           <details class="bpf-admin__card bpf-admin__collapsible">
             <summary class="bpf-admin__collapsible-summary">
-              <span class="bpf-admin__card-title">Optional native File Handler registration script</span>
-              <button class="bpf-admin__copy-btn" data-action="copy-register-script" type="button">Copy</button>
+              <span class="bpf-admin__card-title">Native File Handler cleanup script</span>
+              <button class="bpf-admin__copy-btn" data-action="copy-cleanup-script" type="button">Copy</button>
             </summary>
-            <p class="bpf-admin__hint">Optional only. Use this if you want native Microsoft 365 File Handler integration for OneDrive / File Handler launch flows. The SharePoint preview experience does not require this script.</p>
-            <textarea class="bpf-admin__script" data-role="register-script" readonly>${escapeHtml(registerScript)}</textarea>
+            <p class="bpf-admin__hint">Use this if Microsoft's built-in preview still opens an old Azure File Handler. Searches Entra for matching add-ins and removes them. Does not affect the SPFx renderer.</p>
+            <textarea class="bpf-admin__script" data-role="cleanup-script" readonly>${escapeHtml(cleanupScript)}</textarea>
           </details>
 
           <p class="bpf-admin__message" data-role="message" aria-live="polite"></p>
@@ -196,14 +210,19 @@ export class PreviewSettingsDialog extends BaseDialog {
         this.render();
       });
     });
-    this.domElement.querySelector('[data-action="copy-cleanup-script"]')?.addEventListener('click', (e) => {
-      e.stopPropagation(); // prevent details toggle
-      this.copyScript('cleanup-script', 'Cleanup script copied.');
-    });
     this.domElement.querySelector('[data-action="copy-register-script"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.copyScript('register-script', 'Registration script copied.');
     });
+    this.domElement.querySelector('[data-action="copy-cleanup-script"]')?.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevent details toggle
+      this.copyScript('cleanup-script', 'Cleanup script copied.');
+    });
+    // Live-refresh scripts and status when URL changes or "registered" toggle is flipped
+    (this.domElement.querySelector('[data-field="appBaseUrl"]') as HTMLInputElement | null)
+      ?.addEventListener('input', () => this.refreshScripts());
+    (this.domElement.querySelector('[data-field="fileHandlerEnabled"]') as HTMLInputElement | null)
+      ?.addEventListener('change', () => this.refreshScripts());
     this.domElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
       this.save().catch((error: unknown) => {
         this.setMessage(error instanceof Error ? error.message : 'Could not save settings.', true);
@@ -285,6 +304,22 @@ export class PreviewSettingsDialog extends BaseDialog {
     );
   }
 
+  private refreshScripts(): void {
+    const current = this.readForm();
+    const registerEl = this.domElement.querySelector('[data-role="register-script"]') as HTMLTextAreaElement | null;
+    const cleanupEl = this.domElement.querySelector('[data-role="cleanup-script"]') as HTMLTextAreaElement | null;
+    if (registerEl) registerEl.value = buildRegisterFileHandlerScript(current, this.scriptContext);
+    if (cleanupEl) cleanupEl.value = buildCleanupFileHandlerScript(current, this.scriptContext);
+    const statusEl = this.domElement.querySelector('[data-role="handler-status"]') as HTMLElement | null;
+    if (statusEl) {
+      const s = getHandlerStatusInfo(current);
+      statusEl.className = s.cssClass;
+      statusEl.textContent = s.text;
+    }
+    const extEl = this.domElement.querySelector('[data-role="handler-extensions"]') as HTMLElement | null;
+    if (extEl) extEl.innerHTML = renderNativeHandlerExtensionsHtml(current);
+  }
+
   private copyScript(role: string, successMessage: string): void {
     const script = (this.domElement.querySelector(`[data-role="${role}"]`) as HTMLTextAreaElement | null)?.value || '';
     if (!script) return;
@@ -320,7 +355,7 @@ export class PreviewSettingsDialog extends BaseDialog {
 
     const style = document.createElement('style');
     style.textContent = `
-      :root {
+      .bpf-admin {
         --bpf-blue: #0078d4;
         --bpf-blue-hover: #106ebe;
         --bpf-blue-light: #deecf9;
@@ -412,6 +447,47 @@ export class PreviewSettingsDialog extends BaseDialog {
         color: var(--bpf-text-secondary);
         font-size: 13px;
         margin: -8px 0 0;
+      }
+      /* ── Card header with optional badge ── */
+      .bpf-admin__card-header {
+        align-items: center;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .bpf-admin__card-header .bpf-admin__card-title { margin: 0; }
+      .bpf-admin__tag-optional {
+        background: var(--bpf-bg);
+        border: 1px solid var(--bpf-border-strong);
+        border-radius: 20px;
+        color: var(--bpf-text-secondary);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: .04em;
+        padding: 2px 9px;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      /* ── Handler status badge ── */
+      .bpf-admin__handler-status {
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: .03em;
+        padding: 3px 10px;
+        white-space: nowrap;
+      }
+      .bpf-admin__handler-status--active   { background: #dff6dd; color: var(--bpf-green); }
+      .bpf-admin__handler-status--partial  { background: var(--bpf-warn-bg); color: #5c4700; }
+      .bpf-admin__handler-status--inactive { background: var(--bpf-bg); border: 1px solid var(--bpf-border); color: var(--bpf-text-secondary); }
+      /* Inline extension code */
+      .bpf-admin__ext-code {
+        background: var(--bpf-bg);
+        border: 1px solid var(--bpf-border);
+        border-radius: 3px;
+        font-family: Consolas, "Cascadia Code", "Courier New", monospace;
+        font-size: 12px;
+        padding: 1px 5px;
       }
       /* ── Collapsible sections (PS scripts) ── */
       .bpf-admin__collapsible { gap: 0; padding: 0; }
@@ -805,10 +881,11 @@ function validateSettings(settings: IPreviewSettings): string {
 }
 
 function buildRegisterFileHandlerScript(settings: IPreviewSettings, context: IAdminScriptContext): string {
+  // Only .bpmn and .drawio have Get-ExtensionSpec definitions; all other renderers are handled by the SPFx package only.
   const enabledExtensions = settings.extensions
-    .filter((extension) => extension.enabled && extension.renderer !== 'coming-soon')
-    .map((extension) => extension.extension)
-    .join(',');
+    .filter((ext) => ext.enabled && (ext.extension === '.bpmn' || ext.extension === '.drawio'))
+    .map((ext) => ext.extension)
+    .join(',') || '.bpmn,.drawio';
   const endpoint = settings.appBaseUrl || '<optional-handler-endpoint-url>';
   const iconBaseUrl = `${context.configSiteUrl}/SiteAssets/M365FilePreviewIcons`;
 
@@ -998,6 +1075,27 @@ foreach ($app in $apps) {
 
 Write-Host "Updated app registrations:" $updated
 Write-Host "Microsoft 365 File Handler changes can still take time to expire from SharePoint/OneDrive caches."`;
+}
+
+function getHandlerStatusInfo(settings: IPreviewSettings): { cssClass: string; text: string } {
+  if (settings.fileHandlerEnabled && settings.appBaseUrl) {
+    return { cssClass: 'bpf-admin__handler-status bpf-admin__handler-status--active', text: 'Active' };
+  }
+  if (settings.appBaseUrl) {
+    return { cssClass: 'bpf-admin__handler-status bpf-admin__handler-status--partial', text: 'Endpoint set — not registered' };
+  }
+  return { cssClass: 'bpf-admin__handler-status bpf-admin__handler-status--inactive', text: 'Not configured' };
+}
+
+function renderNativeHandlerExtensionsHtml(settings: IPreviewSettings): string {
+  const native = settings.extensions.filter(
+    (e) => e.enabled && (e.extension === '.bpmn' || e.extension === '.drawio')
+  );
+  if (native.length === 0) {
+    return 'No eligible extensions are currently enabled. Enable <strong>.bpmn</strong> or <strong>.drawio</strong> in the Extensions section above to use native File Handler registration.';
+  }
+  const list = native.map((e) => `<code class="bpf-admin__ext-code">${escapeHtml(e.extension)}</code>`).join(' and ');
+  return `Extensions covered by native handler: ${list}. All other file types open via the SPFx viewer only.`;
 }
 
 function readRenderer(value: unknown): IFileExtensionSettings['renderer'] {

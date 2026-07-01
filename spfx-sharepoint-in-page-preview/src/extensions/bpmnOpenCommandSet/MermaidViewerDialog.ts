@@ -1,14 +1,15 @@
 import { SPHttpClient } from '@microsoft/sp-http';
-import { BaseDialog, type IDialogConfiguration } from '@microsoft/sp-dialog';
 import type { IFileExtensionSettings } from './previewSettings';
 import { SharePointFileService, type ISharePointFileMetadata } from './sharePointFileService';
 import { renderIcon } from '../../shared/icons';
+import { ensureDialogBaseStyles } from '../../shared/dialogUtils';
 
 // mermaid is loaded dynamically to keep it out of the main SPFx bundle.
 // License: MIT — https://github.com/mermaid-js/mermaid
 type MermaidModule = typeof import('mermaid');
 
-export class MermaidViewerDialog extends BaseDialog {
+export class MermaidViewerDialog {
+  private el: HTMLDialogElement | undefined;
   private fileService: SharePointFileService;
   private metadata: ISharePointFileMetadata | undefined;
   private mermaidModule: MermaidModule | undefined;
@@ -16,6 +17,7 @@ export class MermaidViewerDialog extends BaseDialog {
   private rawText: string = '';
   private isDirty: boolean = false;
   private renderTimer: number = 0;
+  private readonly onFullscreenChangeBound = (): void => this.updateFullscreenButton();
 
   // Pan / zoom state
   private zoom: number = 1;
@@ -28,24 +30,34 @@ export class MermaidViewerDialog extends BaseDialog {
   private dragStartPanY: number = 0;
 
   public constructor(
+    private readonly hostEl: HTMLElement,
     spHttpClient: SPHttpClient,
     webAbsoluteUrl: string,
     private readonly serverRelativeUrl: string,
     private readonly fileName: string,
     private readonly extensionSettings: IFileExtensionSettings
   ) {
-    super({ isBlocking: false });
     this.fileService = new SharePointFileService(spHttpClient, webAbsoluteUrl);
   }
 
-  public render(): void {
+  public open(): void {
+    ensureDialogBaseStyles(this.hostEl);
+    const dlg = document.createElement('dialog');
+    dlg.className = 'bpf-viewer-dialog';
+    this.hostEl.appendChild(dlg);
+    this.el = dlg;
+    this.render();
+    dlg.showModal();
+    dlg.addEventListener('close', () => { this.afterClose(); }, { once: true });
+  }
+
+  private closeDialog(): void {
+    this.el?.close();
+  }
+
+  private render(): void {
     const badge = this.extensionSettings.extension.replace('.', '').toUpperCase();
     const editable = this.isEditable();
-    this.domElement.style.cssText =
-      'box-sizing:border-box;display:flex;flex-direction:column;height:100dvh;inset:0;overflow:hidden;position:fixed;width:100vw;z-index:2147483647;';
-    this.makeFullViewport();
-    window.requestAnimationFrame(() => this.makeFullViewport());
-    window.setTimeout(() => this.makeFullViewport(), 300);
 
     const saveButton = editable
       ? `<button class="mmd-dialog__button" data-action="save" type="button" aria-label="Save" title="Save" disabled>${renderIcon('save')}</button>`
@@ -65,7 +77,7 @@ export class MermaidViewerDialog extends BaseDialog {
           <div class="mmd-dialog__diagram" data-role="diagram"></div>
         </div>`;
 
-    this.domElement.innerHTML = `
+    this.el!.innerHTML = `
       <div class="mmd-dialog">
         <div class="mmd-dialog__header">
           <div class="mmd-dialog__title">
@@ -96,14 +108,12 @@ export class MermaidViewerDialog extends BaseDialog {
     });
   }
 
-  public getConfig(): IDialogConfiguration {
-    return { isBlocking: false };
-  }
-
-  protected onAfterClose(): void {
+  private afterClose(): void {
+    document.removeEventListener('fullscreenchange', this.onFullscreenChangeBound);
     window.clearTimeout(this.renderTimer);
     this.exitFullscreen().catch(() => undefined);
-    super.onAfterClose();
+    this.el?.remove();
+    this.el = undefined;
   }
 
   private isEditable(): boolean {
@@ -128,7 +138,7 @@ export class MermaidViewerDialog extends BaseDialog {
     this.isDirty = false;
     this.renderMetadata();
 
-    const editorEl = this.domElement.querySelector('[data-role="editor"]') as HTMLTextAreaElement | null;
+    const editorEl = this.el!.querySelector('[data-role="editor"]') as HTMLTextAreaElement | null;
     if (editorEl) {
       editorEl.value = text;
     }
@@ -140,7 +150,7 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private async renderDiagram(text: string): Promise<void> {
-    const diagramEl = this.domElement.querySelector('[data-role="diagram"]') as HTMLElement | null;
+    const diagramEl = this.el!.querySelector('[data-role="diagram"]') as HTMLElement | null;
     if (!diagramEl) {
       return;
     }
@@ -202,7 +212,7 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private async save(): Promise<void> {
-    const editorEl = this.domElement.querySelector('[data-role="editor"]') as HTMLTextAreaElement | null;
+    const editorEl = this.el!.querySelector('[data-role="editor"]') as HTMLTextAreaElement | null;
     if (!editorEl || !this.isEditable()) {
       return;
     }
@@ -231,7 +241,7 @@ export class MermaidViewerDialog extends BaseDialog {
   private scheduleRerender(): void {
     window.clearTimeout(this.renderTimer);
     this.renderTimer = window.setTimeout(() => {
-      const editorEl = this.domElement.querySelector('[data-role="editor"]') as HTMLTextAreaElement | null;
+      const editorEl = this.el!.querySelector('[data-role="editor"]') as HTMLTextAreaElement | null;
       if (!editorEl) return;
       const text = editorEl.value;
       this.setStatus('Rendering…');
@@ -251,7 +261,7 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private updateSaveButton(): void {
-    const saveBtn = this.domElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
+    const saveBtn = this.el!.querySelector('[data-action="save"]') as HTMLButtonElement | null;
     if (saveBtn) {
       saveBtn.disabled = !this.isDirty;
     }
@@ -265,14 +275,14 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private applyTransform(): void {
-    const diagramEl = this.domElement.querySelector('[data-role="diagram"]') as HTMLElement | null;
+    const diagramEl = this.el!.querySelector('[data-role="diagram"]') as HTMLElement | null;
     if (diagramEl) {
       diagramEl.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
     }
   }
 
   private changeZoom(factor: number, originX?: number, originY?: number): void {
-    const canvasEl = this.domElement.querySelector('[data-role="canvas"]') as HTMLElement | null;
+    const canvasEl = this.el!.querySelector('[data-role="canvas"]') as HTMLElement | null;
     const cx = originX ?? (canvasEl ? canvasEl.clientWidth / 2 : 0);
     const cy = originY ?? (canvasEl ? canvasEl.clientHeight / 2 : 0);
 
@@ -286,28 +296,28 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private wireEvents(): void {
-    this.domElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       window.clearTimeout(this.renderTimer);
       this.load().catch((e: unknown) => this.setError(e instanceof Error ? e.message : 'Could not reload.'));
     });
-    this.domElement.querySelector('[data-action="zoom-out"]')?.addEventListener('click', () => this.changeZoom(0.8));
-    this.domElement.querySelector('[data-action="zoom-in"]')?.addEventListener('click', () => this.changeZoom(1.25));
-    this.domElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.resetZoom());
-    this.domElement.querySelector('[data-action="download"]')?.addEventListener('click', () => this.download());
-    this.domElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="zoom-out"]')?.addEventListener('click', () => this.changeZoom(0.8));
+    this.el!.querySelector('[data-action="zoom-in"]')?.addEventListener('click', () => this.changeZoom(1.25));
+    this.el!.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.resetZoom());
+    this.el!.querySelector('[data-action="download"]')?.addEventListener('click', () => this.download());
+    this.el!.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
       this.toggleFullscreen().catch((e: unknown) => this.setError(e instanceof Error ? e.message : 'Could not open full screen.'));
     });
-    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
-    this.domElement.querySelector('.mmd-dialog__close')?.addEventListener('click', () => {
-      this.close().catch(() => undefined);
+    document.addEventListener('fullscreenchange', this.onFullscreenChangeBound);
+    this.el!.querySelector('.mmd-dialog__close')?.addEventListener('click', () => {
+      this.closeDialog();
     });
 
     if (this.isEditable()) {
-      this.domElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+      this.el!.querySelector('[data-action="save"]')?.addEventListener('click', () => {
         this.save().catch((e: unknown) => this.setError(e instanceof Error ? e.message : 'Could not save.'));
       });
 
-      const editorEl = this.domElement.querySelector('[data-role="editor"]') as HTMLTextAreaElement | null;
+      const editorEl = this.el!.querySelector('[data-role="editor"]') as HTMLTextAreaElement | null;
       if (editorEl) {
         editorEl.addEventListener('input', () => {
           this.isDirty = true;
@@ -332,7 +342,7 @@ export class MermaidViewerDialog extends BaseDialog {
     }
 
     // Pan/zoom on the canvas
-    const canvasEl = this.domElement.querySelector('[data-role="canvas"]') as HTMLElement | null;
+    const canvasEl = this.el!.querySelector('[data-role="canvas"]') as HTMLElement | null;
     if (canvasEl) {
       canvasEl.addEventListener('wheel', (e: WheelEvent) => {
         e.preventDefault();
@@ -388,7 +398,8 @@ export class MermaidViewerDialog extends BaseDialog {
     if (document.fullscreenElement) {
       await this.exitFullscreen();
     } else {
-      await this.domElement.requestFullscreen();
+      const target = this.el!.firstElementChild as HTMLElement | null;
+      await (target ?? document.documentElement).requestFullscreen();
       this.updateFullscreenButton();
     }
   }
@@ -401,7 +412,7 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private updateFullscreenButton(): void {
-    const btn = this.domElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
+    const btn = this.el!.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
     if (!btn) {
       return;
     }
@@ -412,38 +423,8 @@ export class MermaidViewerDialog extends BaseDialog {
     btn.title = isFs ? 'Exit full screen' : 'Open full screen';
   }
 
-  private makeFullViewport(): void {
-    let parent: HTMLElement | null = this.domElement.parentElement;
-    while (parent && parent !== document.body) {
-      parent.style.setProperty('animation', 'none', 'important');
-      parent.style.setProperty('transition', 'none', 'important');
-      parent.style.setProperty('transform', 'none', 'important');
-      parent.style.setProperty('will-change', 'auto', 'important');
-      parent.style.setProperty('filter', 'none', 'important');
-      parent.style.setProperty('perspective', 'none', 'important');
-      parent.style.setProperty('contain', 'none', 'important');
-      parent.style.setProperty('max-width', 'none', 'important');
-      parent.style.setProperty('max-height', 'none', 'important');
-      parent.style.setProperty('overflow', 'visible', 'important');
-      parent.style.setProperty('border-radius', '0', 'important');
-      parent = parent.parentElement;
-    }
-
-    const el = this.domElement;
-    el.style.setProperty('position', 'fixed', 'important');
-    el.style.setProperty('inset', '0', 'important');
-    el.style.setProperty('width', '100vw', 'important');
-    el.style.setProperty('height', '100dvh', 'important');
-    el.style.setProperty('z-index', '2147483647', 'important');
-    el.style.removeProperty('transform');
-    const rect = el.getBoundingClientRect();
-    if (rect.left !== 0 || rect.top !== 0) {
-      el.style.setProperty('transform', `translate(${-rect.left}px,${-rect.top}px)`, 'important');
-    }
-  }
-
   private ensureStyles(): void {
-    if (this.domElement.querySelector('style[data-bpf-preview-style="mmd"]')) {
+    if (this.el!.querySelector('style[data-bpf-preview-style="mmd"]')) {
       return;
     }
 
@@ -609,7 +590,7 @@ export class MermaidViewerDialog extends BaseDialog {
       }
       .mmd-dialog__editor-area::selection { background: #264f78; }
       .mmd-dialog__editor-area:focus { outline: none; }
-      :fullscreen .mmd-dialog { min-height: 100dvh; }
+      .mmd-dialog:fullscreen { min-height: 100dvh; }
       @media (max-width: 720px) {
         .mmd-dialog__header { align-items: stretch; flex-direction: column; flex-basis: auto; }
         .mmd-dialog__actions { justify-content: flex-start; }
@@ -617,12 +598,12 @@ export class MermaidViewerDialog extends BaseDialog {
         .mmd-dialog__editor-pane { flex: 0 0 40%; border-right: none; border-bottom: 1px solid rgba(255,255,255,.08); }
       }
     `;
-    this.domElement.appendChild(style);
+    this.el!.appendChild(style);
   }
 
   private setBusy(isBusy: boolean, status: string): void {
     this.setStatus(status);
-    this.domElement.querySelectorAll('.mmd-dialog__button').forEach((btn) => {
+    this.el!.querySelectorAll('.mmd-dialog__button').forEach((btn) => {
       const typedBtn = btn as HTMLButtonElement;
       if (typedBtn.dataset.action === 'save') {
         // Save button follows isDirty state, not busy state
@@ -634,14 +615,14 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private setStatus(status: string): void {
-    const el = this.domElement.querySelector('[data-role="status"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="status"]') as HTMLElement | null;
     if (el) {
       el.textContent = status;
     }
   }
 
   private setMessage(message: string): void {
-    const el = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!el) {
       return;
     }
@@ -652,7 +633,7 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private setError(message: string): void {
-    const el = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!el) {
       return;
     }
@@ -664,7 +645,7 @@ export class MermaidViewerDialog extends BaseDialog {
   }
 
   private renderMetadata(): void {
-    const nameEl = this.domElement.querySelector('.mmd-dialog__name') as HTMLElement | null;
+    const nameEl = this.el!.querySelector('.mmd-dialog__name') as HTMLElement | null;
     if (!nameEl || !this.metadata) {
       return;
     }

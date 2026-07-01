@@ -1,13 +1,14 @@
 import { SPHttpClient } from '@microsoft/sp-http';
-import { BaseDialog, type IDialogConfiguration } from '@microsoft/sp-dialog';
 import type { IFileExtensionSettings } from './previewSettings';
 import { SharePointFileService, type ISharePointFileMetadata } from './sharePointFileService';
 import { renderIcon } from '../../shared/icons';
+import { ensureDialogBaseStyles } from '../../shared/dialogUtils';
 
 // occt-import-js and three are loaded via dynamic import so they are split into
 // separate webpack chunks and only fetched when the dialog actually opens.
 // web-ifc license: MIT  https://github.com/IFCjs/web-ifc
-// occt-import-js license: MIT  https://github.com/kovacsv/occt-import-js
+// occt-import-js license: LGPL-2.1  https://github.com/kovacsv/occt-import-js
+// occt-import-js WASM must remain a separate file per LGPL-2.1 relinkability requirement.
 // three license: MIT  https://github.com/mrdoob/three.js
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -16,7 +17,12 @@ type OcctModule = { default: (opts: { locateFile: (p: string) => string }) => Pr
 type ThreeModule = typeof import('three');
 type OrbitControlsModule = typeof import('three/examples/jsm/controls/OrbitControls');
 
-const OCCT_WASM_CDN = 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/';
+declare const __webpack_public_path__: string;
+// Production: WASM is co-located with JS chunks in the sppkg (SharePoint CDN).
+// Dev (localhost): fall back to jsDelivr so the dev server works without extra setup.
+const OCCT_WASM_CDN: string = (typeof __webpack_public_path__ !== 'undefined' && window.location.hostname !== 'localhost')
+  ? __webpack_public_path__
+  : 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/';
 
 // ─── Tree icons (16×16 viewBox, stroke-based) ────────────────────────────────
 const S = (d: string): string =>
@@ -49,7 +55,8 @@ interface StepTreeNode {
   visible: boolean;
 }
 
-export class StepViewerDialog extends BaseDialog {
+export class StepViewerDialog {
+  private el: HTMLDialogElement | undefined;
   private fileService: SharePointFileService;
   private metadata: ISharePointFileMetadata | undefined;
   private cancelled: boolean = false;
@@ -70,27 +77,38 @@ export class StepViewerDialog extends BaseDialog {
   private searchQuery: string = '';
   private raycaster: import('three').Raycaster | undefined;
   private mouseDownPos: { x: number; y: number } | undefined;
+  private readonly onFullscreenChangeBound = (): void => this.updateFullscreenButton();
 
   public constructor(
+    private readonly hostEl: HTMLElement,
     spHttpClient: SPHttpClient,
     webAbsoluteUrl: string,
     private readonly serverRelativeUrl: string,
     private readonly fileName: string,
     private readonly extensionSettings: IFileExtensionSettings
   ) {
-    super({ isBlocking: false });
     this.fileService = new SharePointFileService(spHttpClient, webAbsoluteUrl);
   }
 
-  public render(): void {
-    const badge = this.extensionSettings.extension.replace('.', '').toUpperCase();
-    this.domElement.style.cssText =
-      'box-sizing:border-box;display:flex;flex-direction:column;height:100dvh;inset:0;overflow:hidden;position:fixed;width:100vw;z-index:2147483647;';
-    this.makeFullViewport();
-    window.requestAnimationFrame(() => this.makeFullViewport());
-    window.setTimeout(() => this.makeFullViewport(), 300);
+  public open(): void {
+    ensureDialogBaseStyles(this.hostEl);
+    const dlg = document.createElement('dialog');
+    dlg.className = 'bpf-viewer-dialog';
+    this.hostEl.appendChild(dlg);
+    this.el = dlg;
+    this.render();
+    dlg.showModal();
+    dlg.addEventListener('close', () => { this.afterClose(); }, { once: true });
+  }
 
-    this.domElement.innerHTML = `
+  private closeDialog(): void {
+    this.el?.close();
+  }
+
+  private render(): void {
+    const badge = this.extensionSettings.extension.replace('.', '').toUpperCase();
+
+    this.el!.innerHTML = `
       <div class="step-dialog">
         <div class="step-dialog__header">
           <div class="step-dialog__title">
@@ -139,15 +157,13 @@ export class StepViewerDialog extends BaseDialog {
     });
   }
 
-  public getConfig(): IDialogConfiguration {
-    return { isBlocking: false };
-  }
-
-  protected onAfterClose(): void {
+  private afterClose(): void {
+    document.removeEventListener('fullscreenchange', this.onFullscreenChangeBound);
     this.cancelled = true;
     this.teardownScene();
     this.exitFullscreen().catch(() => undefined);
-    super.onAfterClose();
+    this.el?.remove();
+    this.el = undefined;
   }
 
   // ── Core loading pipeline ─────────────────────────────────────────────────
@@ -190,7 +206,7 @@ export class StepViewerDialog extends BaseDialog {
       console.error('[StepViewerDialog] WASM init failed:', wasmErr);
       throw new Error(
         'The STEP engine (occt-import-js WASM) failed to initialise. ' +
-        'Check that the browser can reach cdn.jsdelivr.net and that WebAssembly is not blocked by your security policy.'
+        'WebAssembly may be blocked by your browser security policy or corporate firewall.'
       );
     }
     if (this.cancelled) return;
@@ -232,14 +248,14 @@ export class StepViewerDialog extends BaseDialog {
     this.setBusy(false, bodyStr);
 
     if (this.rootNodes.length > 0) {
-      const treePanel = this.domElement.querySelector('[data-role="tree-panel"]') as HTMLElement | null;
+      const treePanel = this.el!.querySelector('[data-role="tree-panel"]') as HTMLElement | null;
       if (treePanel) {
         treePanel.hidden = false;
         const searchWrap = treePanel.querySelector('.step-tree__search') as HTMLElement | null;
         if (searchWrap && meshCount > 5) searchWrap.hidden = false;
       }
       this.renderTreePanel();
-      const footerEl = this.domElement.querySelector('[data-role="tree-footer"]') as HTMLElement | null;
+      const footerEl = this.el!.querySelector('[data-role="tree-footer"]') as HTMLElement | null;
       if (footerEl) {
         footerEl.textContent = `${meshCount.toLocaleString()} bod${meshCount === 1 ? 'y' : 'ies'} · click to select · dbl-click to zoom`;
       }
@@ -353,7 +369,7 @@ export class StepViewerDialog extends BaseDialog {
   // ── Tree panel rendering ──────────────────────────────────────────────────
 
   private renderTreePanel(): void {
-    const container = this.domElement.querySelector('[data-role="tree-nodes"]') as HTMLElement | null;
+    const container = this.el!.querySelector('[data-role="tree-nodes"]') as HTMLElement | null;
     if (!container) return;
     const html: string[] = [];
     for (let i = 0; i < this.rootNodes.length; i++) {
@@ -419,7 +435,7 @@ export class StepViewerDialog extends BaseDialog {
   // ── Tree events ───────────────────────────────────────────────────────────
 
   private wireTreeEvents(): void {
-    const panel = this.domElement.querySelector('[data-role="tree-panel"]') as HTMLElement | null;
+    const panel = this.el!.querySelector('[data-role="tree-panel"]') as HTMLElement | null;
     if (!panel) return;
 
     panel.querySelector('[data-action="show-all"]')?.addEventListener('click', () => {
@@ -433,11 +449,11 @@ export class StepViewerDialog extends BaseDialog {
     panel.querySelector('[data-action="collapse-panel"]')?.addEventListener('click', () => {
       panel.style.flexBasis = '0px';
       panel.style.minWidth = '0px';
-      const expandBtn = this.domElement.querySelector('[data-action="expand-panel"]') as HTMLElement | null;
+      const expandBtn = this.el!.querySelector('[data-action="expand-panel"]') as HTMLElement | null;
       if (expandBtn) expandBtn.hidden = false;
     });
 
-    const expandBtn = this.domElement.querySelector('[data-action="expand-panel"]') as HTMLElement | null;
+    const expandBtn = this.el!.querySelector('[data-action="expand-panel"]') as HTMLElement | null;
     expandBtn?.addEventListener('click', () => {
       panel.style.flexBasis = '';
       panel.style.minWidth = '';
@@ -566,7 +582,7 @@ export class StepViewerDialog extends BaseDialog {
       mat.color.setHex(0x4488ff);
     }
 
-    const treeNodes = this.domElement.querySelectorAll('[data-role="tree-node"]');
+    const treeNodes = this.el!.querySelectorAll('[data-role="tree-node"]');
     for (let i = 0; i < treeNodes.length; i++) {
       const el = treeNodes[i] as HTMLElement;
       const sel = el.dataset.nodeId === nodeId;
@@ -584,7 +600,7 @@ export class StepViewerDialog extends BaseDialog {
       (mesh.material as import('three').MeshLambertMaterial).color.copy(color);
     });
     this.highlightedMeshes.clear();
-    const treeNodes = this.domElement.querySelectorAll('[data-role="tree-node"]');
+    const treeNodes = this.el!.querySelectorAll('[data-role="tree-node"]');
     for (let i = 0; i < treeNodes.length; i++) {
       const el = treeNodes[i] as HTMLElement;
       el.classList.remove('stree-node--selected');
@@ -676,7 +692,7 @@ export class StepViewerDialog extends BaseDialog {
     camera: import('three').PerspectiveCamera;
     renderer: import('three').WebGLRenderer;
   } {
-    const canvasEl = this.domElement.querySelector('[data-role="canvas"]') as HTMLElement;
+    const canvasEl = this.el!.querySelector('[data-role="canvas"]') as HTMLElement;
     const scene = new three.Scene();
     scene.background = new three.Color(0x1a1f2e);
     scene.add(new three.AmbientLight(0xffffff, 0.5));
@@ -760,15 +776,15 @@ export class StepViewerDialog extends BaseDialog {
   // ── Dialog wire-up ────────────────────────────────────────────────────────
 
   private wireEvents(): void {
-    this.domElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       if (this.cancelled) return;
       this.teardownScene();
       this.rootNodes = [];
       this.nodeMap.clear();
       this.searchQuery = '';
-      const treePanel = this.domElement.querySelector('[data-role="tree-panel"]') as HTMLElement | null;
+      const treePanel = this.el!.querySelector('[data-role="tree-panel"]') as HTMLElement | null;
       if (treePanel) { treePanel.hidden = true; treePanel.style.flexBasis = ''; treePanel.style.minWidth = ''; }
-      const expandBtn = this.domElement.querySelector('[data-action="expand-panel"]') as HTMLElement | null;
+      const expandBtn = this.el!.querySelector('[data-action="expand-panel"]') as HTMLElement | null;
       if (expandBtn) expandBtn.hidden = true;
       this.cancelled = false;
       this.load().catch((e: unknown) =>
@@ -776,28 +792,33 @@ export class StepViewerDialog extends BaseDialog {
       );
     });
 
-    this.domElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="fit"]')?.addEventListener('click', () => {
       import(/* webpackChunkName: 'three' */ 'three')
         .then((three: ThreeModule) => this.fitCamera(three))
         .catch(() => undefined);
     });
 
-    this.domElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
       this.toggleFullscreen().catch((e: unknown) =>
         this.setError(e instanceof Error ? e.message : 'Could not toggle full screen.')
       );
     });
 
-    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('fullscreenchange', this.onFullscreenChangeBound);
 
-    this.domElement.querySelector('.step-dialog__close')?.addEventListener('click', () => {
-      this.close().catch(() => undefined);
+    this.el!.querySelector('.step-dialog__close')?.addEventListener('click', () => {
+      this.closeDialog();
     });
   }
 
   private async toggleFullscreen(): Promise<void> {
-    if (document.fullscreenElement) await this.exitFullscreen();
-    else { await this.domElement.requestFullscreen(); this.updateFullscreenButton(); }
+    if (document.fullscreenElement) {
+      await this.exitFullscreen();
+    } else {
+      const target = this.el!.firstElementChild as HTMLElement | null;
+      await (target ?? document.documentElement).requestFullscreen();
+      this.updateFullscreenButton();
+    }
   }
 
   private async exitFullscreen(): Promise<void> {
@@ -805,7 +826,7 @@ export class StepViewerDialog extends BaseDialog {
   }
 
   private updateFullscreenButton(): void {
-    const btn = this.domElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
+    const btn = this.el!.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
     if (!btn) return;
     const isFs = Boolean(document.fullscreenElement);
     btn.innerHTML = renderIcon(isFs ? 'restore' : 'external');
@@ -813,58 +834,22 @@ export class StepViewerDialog extends BaseDialog {
     btn.title = isFs ? 'Exit full screen' : 'Open full screen';
   }
 
-  private makeFullViewport(): void {
-    let parent: HTMLElement | null = this.domElement.parentElement;
-    while (parent && parent !== document.body) {
-      if (
-        parent.getAttribute('role') === 'dialog' ||
-        parent.getAttribute('aria-modal') === 'true' ||
-        parent.classList.contains('ms-Dialog') ||
-        parent.classList.contains('ms-Panel') ||
-        parent.classList.contains('ms-Layer')
-      ) break;
-      parent.style.setProperty('animation', 'none', 'important');
-      parent.style.setProperty('transition', 'none', 'important');
-      parent.style.setProperty('transform', 'none', 'important');
-      parent.style.setProperty('will-change', 'auto', 'important');
-      parent.style.setProperty('filter', 'none', 'important');
-      parent.style.setProperty('perspective', 'none', 'important');
-      parent.style.setProperty('contain', 'none', 'important');
-      parent.style.setProperty('max-width', 'none', 'important');
-      parent.style.setProperty('max-height', 'none', 'important');
-      parent.style.setProperty('overflow', 'visible', 'important');
-      parent.style.setProperty('border-radius', '0', 'important');
-      parent = parent.parentElement;
-    }
-    const el = this.domElement;
-    el.style.setProperty('position', 'fixed', 'important');
-    el.style.setProperty('inset', '0', 'important');
-    el.style.setProperty('width', '100vw', 'important');
-    el.style.setProperty('height', '100dvh', 'important');
-    el.style.setProperty('z-index', '2147483647', 'important');
-    el.style.removeProperty('transform');
-    const rect = el.getBoundingClientRect();
-    if (rect.left !== 0 || rect.top !== 0) {
-      el.style.setProperty('transform', `translate(${-rect.left}px,${-rect.top}px)`, 'important');
-    }
-  }
-
   // ── Status helpers ────────────────────────────────────────────────────────
 
   private setBusy(isBusy: boolean, status: string): void {
     this.setStatus(status);
-    this.domElement.querySelectorAll('.step-dialog__button').forEach((btn) => {
+    this.el!.querySelectorAll('.step-dialog__button').forEach((btn) => {
       (btn as HTMLButtonElement).disabled = isBusy;
     });
   }
 
   private setStatus(status: string): void {
-    const el = this.domElement.querySelector('[data-role="status"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="status"]') as HTMLElement | null;
     if (el) el.textContent = status;
   }
 
   private setMessage(message: string): void {
-    const el = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!el) return;
     el.hidden = message.length === 0;
     el.textContent = message;
@@ -872,7 +857,7 @@ export class StepViewerDialog extends BaseDialog {
   }
 
   private setError(message: string): void {
-    const el = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!el) return;
     el.hidden = false;
     el.textContent = message.length > 400 ? message.slice(0, 400) + '…' : message;
@@ -881,19 +866,19 @@ export class StepViewerDialog extends BaseDialog {
   }
 
   private renderMetadata(): void {
-    const nameEl = this.domElement.querySelector('.step-dialog__name') as HTMLElement | null;
+    const nameEl = this.el!.querySelector('.step-dialog__name') as HTMLElement | null;
     if (!nameEl || !this.metadata) return;
     const parts: string[] = [];
     if (this.metadata.timeLastModified) parts.push(`Modified ${new Date(this.metadata.timeLastModified).toLocaleString()}`);
     if (this.metadata.length) parts.push(formatBytes(Number(this.metadata.length)));
-    parts.push('occt-import-js renderer (MIT)');
+    parts.push('occt-import-js renderer (LGPL-2.1)');
     nameEl.title = `${this.fileName}\n${parts.join(' | ')}`;
   }
 
   // ── Styles ────────────────────────────────────────────────────────────────
 
   private ensureStyles(): void {
-    if (this.domElement.querySelector('style[data-bpf-preview-style="step"]')) return;
+    if (this.el!.querySelector('style[data-bpf-preview-style="step"]')) return;
     const style = document.createElement('style');
     style.dataset.bpfPreviewStyle = 'step';
     style.textContent = `
@@ -1065,9 +1050,9 @@ export class StepViewerDialog extends BaseDialog {
       .step-tree__expand-btn:hover { background:rgba(255,255,255,.07); color:#e5e7eb; }
       .step-tree__expand-btn svg { display:block; height:13px; width:13px; }
 
-      :fullscreen .step-dialog { min-height:100dvh; }
+      .step-dialog:fullscreen { min-height:100dvh; }
     `;
-    this.domElement.appendChild(style);
+    this.el!.appendChild(style);
   }
 }
 

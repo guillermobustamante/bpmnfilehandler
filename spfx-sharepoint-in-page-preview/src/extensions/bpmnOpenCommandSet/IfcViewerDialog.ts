@@ -1,8 +1,8 @@
 import { SPHttpClient } from '@microsoft/sp-http';
-import { BaseDialog, type IDialogConfiguration } from '@microsoft/sp-dialog';
 import type { IFileExtensionSettings } from './previewSettings';
 import { SharePointFileService, type ISharePointFileMetadata } from './sharePointFileService';
 import { renderIcon } from '../../shared/icons';
+import { ensureDialogBaseStyles } from '../../shared/dialogUtils';
 
 // web-ifc and three are loaded dynamically to keep 3D libraries out of the main bundle.
 // web-ifc license: MIT — https://github.com/ifcjs/web-ifc
@@ -12,7 +12,12 @@ type ThreeModule = typeof import('three');
 type OrbitControlsModule = typeof import('three/examples/jsm/controls/OrbitControls');
 type BgUtils = typeof import('three/examples/jsm/utils/BufferGeometryUtils');
 
-const WEB_IFC_CDN = 'https://cdn.jsdelivr.net/npm/web-ifc@0.0.77/';
+declare const __webpack_public_path__: string;
+// Production: WASM is co-located with JS chunks in the sppkg (SharePoint CDN).
+// Dev (localhost): fall back to jsDelivr so the dev server works without extra setup.
+const WEB_IFC_CDN: string = (typeof __webpack_public_path__ !== 'undefined' && window.location.hostname !== 'localhost')
+  ? __webpack_public_path__
+  : 'https://cdn.jsdelivr.net/npm/web-ifc@0.0.77/';
 const GEOMETRY_CHUNK = 250; // meshes to build per animation frame to keep UI responsive
 
 interface RawGeom {
@@ -27,7 +32,8 @@ interface RawGeom {
   expressID: number;   // IFC element ID — kept for per-element mesh + property queries
 }
 
-export class IfcViewerDialog extends BaseDialog {
+export class IfcViewerDialog {
+  private el: HTMLDialogElement | undefined;
   private fileService: SharePointFileService;
   private metadata: ISharePointFileMetadata | undefined;
   private cancelled: boolean = false;
@@ -46,27 +52,38 @@ export class IfcViewerDialog extends BaseDialog {
   private originalMeshMaterial: import('three').Material | import('three').Material[] | undefined;
   private raycaster: import('three').Raycaster | undefined;
   private threeModule: ThreeModule | undefined;
+  private readonly onFullscreenChangeBound = (): void => this.updateFullscreenButton();
 
   public constructor(
+    private readonly hostEl: HTMLElement,
     spHttpClient: SPHttpClient,
     webAbsoluteUrl: string,
     private readonly serverRelativeUrl: string,
     private readonly fileName: string,
     private readonly extensionSettings: IFileExtensionSettings
   ) {
-    super({ isBlocking: false });
     this.fileService = new SharePointFileService(spHttpClient, webAbsoluteUrl);
   }
 
-  public render(): void {
-    const badge = this.extensionSettings.extension.replace('.', '').toUpperCase();
-    this.domElement.style.cssText =
-      'box-sizing:border-box;display:flex;flex-direction:column;height:100dvh;inset:0;overflow:hidden;position:fixed;width:100vw;z-index:2147483647;';
-    this.makeFullViewport();
-    window.requestAnimationFrame(() => this.makeFullViewport());
-    window.setTimeout(() => this.makeFullViewport(), 300);
+  public open(): void {
+    ensureDialogBaseStyles(this.hostEl);
+    const dlg = document.createElement('dialog');
+    dlg.className = 'bpf-viewer-dialog';
+    this.hostEl.appendChild(dlg);
+    this.el = dlg;
+    this.render();
+    dlg.showModal();
+    dlg.addEventListener('close', () => { this.afterClose(); }, { once: true });
+  }
 
-    this.domElement.innerHTML = `
+  private closeDialog(): void {
+    this.el?.close();
+  }
+
+  private render(): void {
+    const badge = this.extensionSettings.extension.replace('.', '').toUpperCase();
+
+    this.el!.innerHTML = `
       <div class="ifc-dialog">
         <div class="ifc-dialog__header">
           <div class="ifc-dialog__title">
@@ -104,15 +121,13 @@ export class IfcViewerDialog extends BaseDialog {
     });
   }
 
-  public getConfig(): IDialogConfiguration {
-    return { isBlocking: false };
-  }
-
-  protected onAfterClose(): void {
+  private afterClose(): void {
+    document.removeEventListener('fullscreenchange', this.onFullscreenChangeBound);
     this.cancelled = true;
     this.teardownScene();
     this.exitFullscreen().catch(() => undefined);
-    super.onAfterClose();
+    this.el?.remove();
+    this.el = undefined;
   }
 
   private async load(): Promise<void> {
@@ -165,7 +180,7 @@ export class IfcViewerDialog extends BaseDialog {
       console.error('[IfcViewerDialog] WASM init failed:', wasmErr);
       throw new Error(
         'The IFC engine (web-ifc WASM) failed to initialise. ' +
-        'Check that the browser can reach cdn.jsdelivr.net and that WebAssembly is not blocked by your security policy.'
+        'WebAssembly may be blocked by your browser security policy or corporate firewall.'
       );
     }
     if (this.cancelled) {
@@ -374,7 +389,7 @@ export class IfcViewerDialog extends BaseDialog {
     this.startLoop(three, orbitMod);
 
     // Show usage hint for element inspection
-    const hintEl = this.domElement.querySelector('[data-role="hint"]') as HTMLElement | null;
+    const hintEl = this.el!.querySelector('[data-role="hint"]') as HTMLElement | null;
     if (hintEl) {
       hintEl.hidden = false;
       window.setTimeout(() => { hintEl.hidden = true; }, 6000);
@@ -465,8 +480,8 @@ export class IfcViewerDialog extends BaseDialog {
   }
 
   private showInspector(expressID: number): void {
-    const inspectorEl = this.domElement.querySelector('[data-role="inspector"]') as HTMLElement | null;
-    const contentEl = this.domElement.querySelector('[data-role="inspector-content"]') as HTMLElement | null;
+    const inspectorEl = this.el!.querySelector('[data-role="inspector"]') as HTMLElement | null;
+    const contentEl = this.el!.querySelector('[data-role="inspector-content"]') as HTMLElement | null;
     if (!inspectorEl || !contentEl) {
       return;
     }
@@ -474,13 +489,13 @@ export class IfcViewerDialog extends BaseDialog {
     contentEl.innerHTML = this.renderProperties(expressID);
     inspectorEl.hidden = false;
 
-    const hintEl = this.domElement.querySelector('[data-role="hint"]') as HTMLElement | null;
+    const hintEl = this.el!.querySelector('[data-role="hint"]') as HTMLElement | null;
     if (hintEl) hintEl.hidden = true;
   }
 
   private clearInspector(): void {
     this.restoreHighlight();
-    const inspectorEl = this.domElement.querySelector('[data-role="inspector"]') as HTMLElement | null;
+    const inspectorEl = this.el!.querySelector('[data-role="inspector"]') as HTMLElement | null;
     if (inspectorEl) {
       inspectorEl.hidden = true;
     }
@@ -548,7 +563,7 @@ export class IfcViewerDialog extends BaseDialog {
     camera: import('three').PerspectiveCamera;
     renderer: import('three').WebGLRenderer;
   } {
-    const canvasEl = this.domElement.querySelector('[data-role="canvas"]') as HTMLElement;
+    const canvasEl = this.el!.querySelector('[data-role="canvas"]') as HTMLElement;
 
     const scene = new three.Scene();
     scene.background = new three.Color(0x1e1e1e);
@@ -675,27 +690,27 @@ export class IfcViewerDialog extends BaseDialog {
   }
 
   private wireEvents(): void {
-    this.domElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       this.cancelled = false;
       this.load().catch((e: unknown) => this.setError(e instanceof Error ? e.message : 'Could not reload.'));
     });
 
-    this.domElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="fit"]')?.addEventListener('click', () => {
       import(/* webpackChunkName: 'three' */ 'three').then((three: ThreeModule) => this.fitCamera(three)).catch(() => undefined);
     });
 
-    this.domElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
       this.toggleFullscreen().catch((e: unknown) => this.setError(e instanceof Error ? e.message : 'Could not toggle full screen.'));
     });
 
-    this.domElement.querySelector('[data-action="close-inspector"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="close-inspector"]')?.addEventListener('click', () => {
       this.clearInspector();
     });
 
-    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
+    document.addEventListener('fullscreenchange', this.onFullscreenChangeBound);
 
-    this.domElement.querySelector('.ifc-dialog__close')?.addEventListener('click', () => {
-      this.close().catch(() => undefined);
+    this.el!.querySelector('.ifc-dialog__close')?.addEventListener('click', () => {
+      this.closeDialog();
     });
   }
 
@@ -703,7 +718,8 @@ export class IfcViewerDialog extends BaseDialog {
     if (document.fullscreenElement) {
       await this.exitFullscreen();
     } else {
-      await this.domElement.requestFullscreen();
+      const target = this.el!.firstElementChild as HTMLElement | null;
+      await (target ?? document.documentElement).requestFullscreen();
       this.updateFullscreenButton();
     }
   }
@@ -716,7 +732,7 @@ export class IfcViewerDialog extends BaseDialog {
   }
 
   private updateFullscreenButton(): void {
-    const btn = this.domElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
+    const btn = this.el!.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
     if (!btn) {
       return;
     }
@@ -727,38 +743,8 @@ export class IfcViewerDialog extends BaseDialog {
     btn.title = isFs ? 'Exit full screen' : 'Open full screen';
   }
 
-  private makeFullViewport(): void {
-    let parent: HTMLElement | null = this.domElement.parentElement;
-    while (parent && parent !== document.body) {
-      parent.style.setProperty('animation', 'none', 'important');
-      parent.style.setProperty('transition', 'none', 'important');
-      parent.style.setProperty('transform', 'none', 'important');
-      parent.style.setProperty('will-change', 'auto', 'important');
-      parent.style.setProperty('filter', 'none', 'important');
-      parent.style.setProperty('perspective', 'none', 'important');
-      parent.style.setProperty('contain', 'none', 'important');
-      parent.style.setProperty('max-width', 'none', 'important');
-      parent.style.setProperty('max-height', 'none', 'important');
-      parent.style.setProperty('overflow', 'visible', 'important');
-      parent.style.setProperty('border-radius', '0', 'important');
-      parent = parent.parentElement;
-    }
-
-    const el = this.domElement;
-    el.style.setProperty('position', 'fixed', 'important');
-    el.style.setProperty('inset', '0', 'important');
-    el.style.setProperty('width', '100vw', 'important');
-    el.style.setProperty('height', '100dvh', 'important');
-    el.style.setProperty('z-index', '2147483647', 'important');
-    el.style.removeProperty('transform');
-    const rect = el.getBoundingClientRect();
-    if (rect.left !== 0 || rect.top !== 0) {
-      el.style.setProperty('transform', `translate(${-rect.left}px,${-rect.top}px)`, 'important');
-    }
-  }
-
   private ensureStyles(): void {
-    if (this.domElement.querySelector('style[data-bpf-preview-style="ifc"]')) {
+    if (this.el!.querySelector('style[data-bpf-preview-style="ifc"]')) {
       return;
     }
 
@@ -991,27 +977,27 @@ export class IfcViewerDialog extends BaseDialog {
         padding: 8px 14px;
       }
       .ifc-inspector__error { color: #f9aaa4; }
-      :fullscreen .ifc-dialog { min-height: 100dvh; }
+      .ifc-dialog:fullscreen { min-height: 100dvh; }
     `;
-    this.domElement.appendChild(style);
+    this.el!.appendChild(style);
   }
 
   private setBusy(isBusy: boolean, status: string): void {
     this.setStatus(status);
-    this.domElement.querySelectorAll('.ifc-dialog__button').forEach((btn) => {
+    this.el!.querySelectorAll('.ifc-dialog__button').forEach((btn) => {
       (btn as HTMLButtonElement).disabled = isBusy;
     });
   }
 
   private setStatus(status: string): void {
-    const el = this.domElement.querySelector('[data-role="status"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="status"]') as HTMLElement | null;
     if (el) {
       el.textContent = status;
     }
   }
 
   private setMessage(message: string): void {
-    const el = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!el) {
       return;
     }
@@ -1022,7 +1008,7 @@ export class IfcViewerDialog extends BaseDialog {
   }
 
   private setError(message: string): void {
-    const el = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const el = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!el) {
       return;
     }
@@ -1035,7 +1021,7 @@ export class IfcViewerDialog extends BaseDialog {
   }
 
   private renderMetadata(): void {
-    const nameEl = this.domElement.querySelector('.ifc-dialog__name') as HTMLElement | null;
+    const nameEl = this.el!.querySelector('.ifc-dialog__name') as HTMLElement | null;
     if (!nameEl || !this.metadata) {
       return;
     }

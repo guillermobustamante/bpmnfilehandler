@@ -1,12 +1,12 @@
 {
   "name": "spfx-bpmn-command-set",
-  "version": "1.5.21",
+  "version": "1.6.2",
   "private": true,
   "engines": {
     "node": ">=22.14.0 < 23.0.0"
   },
   "scripts": {
-    "build": "heft test --clean --production && heft package-solution --production",
+    "build": "heft build --clean --production && node scripts/copy-wasm-assets.js && heft package-solution --production",
     "clean": "heft clean",
     "eject-webpack": "heft eject-webpack",
     "postinstall": "node scripts/patch-occt-browser.js",

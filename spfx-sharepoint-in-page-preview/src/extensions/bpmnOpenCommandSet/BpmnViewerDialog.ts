@@ -1,42 +1,55 @@
 import { SPHttpClient } from '@microsoft/sp-http';
-import { BaseDialog, type IDialogConfiguration } from '@microsoft/sp-dialog';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import BpmnViewer from 'bpmn-js/lib/NavigatedViewer';
 import { ensureBpmnAssetStyles } from './bpmnAssetStyles';
 import type { IFileExtensionSettings } from './previewSettings';
 import { SharePointFileService, type ISharePointFileMetadata } from './sharePointFileService';
 import { renderIcon } from '../../shared/icons';
+import { ensureDialogBaseStyles } from '../../shared/dialogUtils';
 
 type BpmnInstance = BpmnModeler | BpmnViewer;
 
-export class BpmnViewerDialog extends BaseDialog {
+export class BpmnViewerDialog {
+  private el: HTMLDialogElement | undefined;
   private bpmnInstance: BpmnInstance | undefined;
   private canvasElement: HTMLElement | undefined;
   private fileService: SharePointFileService;
   private isDirty: boolean = false;
   private metadata: ISharePointFileMetadata | undefined;
   private resizeObserver: ResizeObserver | undefined;
+  private readonly onFullscreenChangeBound = (): void => this.updateFullscreenButton();
   private xml: string = '';
 
   public constructor(
+    private readonly hostEl: HTMLElement,
     spHttpClient: SPHttpClient,
     webAbsoluteUrl: string,
     private readonly serverRelativeUrl: string,
     private readonly fileName: string,
     private readonly extensionSettings: IFileExtensionSettings
   ) {
-    super({ isBlocking: false });
     this.fileService = new SharePointFileService(spHttpClient, webAbsoluteUrl);
   }
 
-  public render(): void {
-    ensureBpmnAssetStyles();
+  public open(): void {
+    ensureDialogBaseStyles(this.hostEl);
+    const dlg = document.createElement('dialog');
+    dlg.className = 'bpf-viewer-dialog';
+    this.hostEl.appendChild(dlg);
+    this.el = dlg;
+    this.render();
+    dlg.showModal();
+    dlg.addEventListener('close', () => { this.afterClose(); }, { once: true });
+  }
 
-    this.domElement.style.cssText = 'box-sizing:border-box;display:flex;flex-direction:column;height:100dvh;inset:0;overflow:hidden;position:fixed;width:100vw;z-index:2147483647;';
-    this.makeFullViewport();
-    window.requestAnimationFrame(() => this.makeFullViewport());
-    window.setTimeout(() => this.makeFullViewport(), 300);
-    this.domElement.innerHTML = `
+  private closeDialog(): void {
+    this.el?.close();
+  }
+
+  private render(): void {
+    ensureBpmnAssetStyles(this.hostEl);
+
+    this.el!.innerHTML = `
       <div class="bpmn-dialog">
         <div class="bpmn-dialog__header">
           <div class="bpmn-dialog__title">
@@ -78,25 +91,21 @@ export class BpmnViewerDialog extends BaseDialog {
     `;
 
     this.ensureStyles();
-    this.canvasElement = this.domElement.querySelector('[data-role="canvas"]') as HTMLElement | undefined;
+    this.canvasElement = this.el!.querySelector('[data-role="canvas"]') as HTMLElement | undefined;
     this.wireEvents();
     this.load().catch((error: unknown) => {
       this.setError(error instanceof Error ? error.message : 'Could not open the selected file.');
     });
   }
 
-  public getConfig(): IDialogConfiguration {
-    return {
-      isBlocking: false
-    };
-  }
-
-  protected onAfterClose(): void {
+  private afterClose(): void {
+    document.removeEventListener('fullscreenchange', this.onFullscreenChangeBound);
     this.exitFullscreen().catch(() => undefined);
     this.resizeObserver?.disconnect();
     this.resizeObserver = undefined;
     this.destroyRenderer();
-    super.onAfterClose();
+    this.el?.remove();
+    this.el = undefined;
   }
 
   private async load(): Promise<void> {
@@ -125,10 +134,7 @@ export class BpmnViewerDialog extends BaseDialog {
 
     container.innerHTML = '';
     this.bpmnInstance = this.isEditable()
-      ? new BpmnModeler({
-          container,
-          keyboard: { bindTo: window }
-        })
+      ? new BpmnModeler({ container })
       : new BpmnViewer({ container });
 
     const importResult = await this.bpmnInstance.importXML(xml);
@@ -201,9 +207,11 @@ export class BpmnViewerDialog extends BaseDialog {
     URL.revokeObjectURL(url);
   }
 
-  private zoom(value: string | number): void {
-    const canvas = this.bpmnInstance?.get<{ zoom: (value: string | number, point?: string) => void }>('canvas');
-    canvas?.zoom(value, 'auto');
+  private zoom(factor: number): void {
+    const canvas = this.bpmnInstance?.get<{ zoom: (value?: string | number, point?: string) => number }>('canvas');
+    if (!canvas) return;
+    const current = canvas.zoom() as number;
+    canvas.zoom(current * factor, 'auto');
   }
 
   private fitDiagram(): void {
@@ -226,72 +234,34 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private wireEvents(): void {
-    this.domElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       this.load().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not reload file.'));
     });
-    this.domElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="save"]')?.addEventListener('click', () => {
       this.save().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not save file.'));
     });
-    this.domElement.querySelector('[data-action="validate"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="validate"]')?.addEventListener('click', () => {
       this.validate().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not validate file.'));
     });
-    this.domElement.querySelector('[data-action="download"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="download"]')?.addEventListener('click', () => {
       this.download().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not download file.'));
     });
-    this.domElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
       this.toggleFullscreen().catch((error: unknown) =>
         this.setError(error instanceof Error ? error.message : 'Could not open full screen.')
       );
     });
-    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
-    this.domElement.querySelector('[data-action="zoom-out"]')?.addEventListener('click', () => this.zoom(0.8));
-    this.domElement.querySelector('[data-action="zoom-in"]')?.addEventListener('click', () => this.zoom(1.2));
-    this.domElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.zoom('fit-viewport'));
-    this.domElement.querySelector('.bpmn-dialog__close')?.addEventListener('click', () => {
-      this.close().catch(() => undefined);
+    document.addEventListener('fullscreenchange', this.onFullscreenChangeBound);
+    this.el!.querySelector('[data-action="zoom-out"]')?.addEventListener('click', () => this.zoom(0.8));
+    this.el!.querySelector('[data-action="zoom-in"]')?.addEventListener('click', () => this.zoom(1.2));
+    this.el!.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.fitDiagram());
+    this.el!.querySelector('.bpmn-dialog__close')?.addEventListener('click', () => {
+      this.closeDialog();
     });
   }
 
-  private makeFullViewport(): void {
-    // Fluent UI's dialog open animation applies CSS transform to ancestor elements,
-    // making them a new containing block for position:fixed children (CSS spec).
-    // Fix: clear all containing-block-creating properties on every ancestor, then
-    // measure the raw offset and apply an inverse translate to reach viewport origin.
-    let parent: HTMLElement | null = this.domElement.parentElement;
-    while (parent && parent !== document.body) {
-      parent.style.setProperty('animation', 'none', 'important');
-      parent.style.setProperty('transition', 'none', 'important');
-      parent.style.setProperty('transform', 'none', 'important');
-      parent.style.setProperty('will-change', 'auto', 'important');
-      parent.style.setProperty('filter', 'none', 'important');
-      parent.style.setProperty('perspective', 'none', 'important');
-      parent.style.setProperty('contain', 'none', 'important');
-      parent.style.setProperty('max-width', 'none', 'important');
-      parent.style.setProperty('max-height', 'none', 'important');
-      parent.style.setProperty('overflow', 'visible', 'important');
-      parent.style.setProperty('border-radius', '0', 'important');
-      parent = parent.parentElement;
-    }
-
-    const el = this.domElement;
-    el.style.setProperty('position', 'fixed', 'important');
-    el.style.setProperty('inset', '0', 'important');
-    el.style.setProperty('width', '100vw', 'important');
-    el.style.setProperty('height', '100dvh', 'important');
-    el.style.setProperty('z-index', '2147483647', 'important');
-
-    // Remove any prior compensation transform so getBoundingClientRect reflects
-    // the raw containing-block offset (not the already-translated position).
-    // removeProperty + getBoundingClientRect are synchronous; no paint occurs between.
-    el.style.removeProperty('transform');
-    const rect = el.getBoundingClientRect();
-    if (rect.left !== 0 || rect.top !== 0) {
-      el.style.setProperty('transform', `translate(${-rect.left}px,${-rect.top}px)`, 'important');
-    }
-  }
-
   private ensureStyles(): void {
-    if (this.domElement.querySelector('style[data-bpf-preview-style="bpmn"]')) {
+    if (this.el!.querySelector('style[data-bpf-preview-style="bpmn"]')) {
       return;
     }
 
@@ -420,7 +390,7 @@ export class BpmnViewerDialog extends BaseDialog {
         height: 100% !important;
         width: 100% !important;
       }
-      :fullscreen .bpmn-dialog {
+      .bpmn-dialog:fullscreen {
         min-height: 100dvh;
       }
       @media (max-width: 720px) {
@@ -434,7 +404,7 @@ export class BpmnViewerDialog extends BaseDialog {
         }
       }
     `;
-    this.domElement.appendChild(style);
+    this.el!.appendChild(style);
   }
 
   private async toggleFullscreen(): Promise<void> {
@@ -443,7 +413,10 @@ export class BpmnViewerDialog extends BaseDialog {
       return;
     }
 
-    await this.domElement.requestFullscreen();
+    // <dialog> elements cannot enter fullscreen (they are already in the top layer).
+    // Request fullscreen on the content div instead — it enters the top layer on top of the dialog.
+    const target = this.el!.firstElementChild as HTMLElement | null;
+    await (target ?? document.documentElement).requestFullscreen();
     this.updateFullscreenButton();
   }
 
@@ -455,7 +428,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private updateFullscreenButton(): void {
-    const button = this.domElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
+    const button = this.el!.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
     if (!button) {
       return;
     }
@@ -479,7 +452,7 @@ export class BpmnViewerDialog extends BaseDialog {
 
   private setBusy(isBusy: boolean, status: string): void {
     this.setStatus(status);
-    this.domElement.querySelectorAll('.bpmn-dialog__button').forEach((button) => {
+    this.el!.querySelectorAll('.bpmn-dialog__button').forEach((button) => {
       const typedButton = button as HTMLButtonElement;
       if (typedButton.dataset.action === 'save') {
         typedButton.disabled = isBusy || !this.isDirty || !this.isEditable();
@@ -490,7 +463,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setStatus(status: string): void {
-    const statusElement = this.domElement.querySelector('[data-role="status"]') as HTMLElement | null;
+    const statusElement = this.el!.querySelector('[data-role="status"]') as HTMLElement | null;
     if (statusElement) {
       statusElement.textContent = status;
     }
@@ -506,7 +479,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setMessage(message: string): void {
-    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -517,7 +490,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private setError(message: string): void {
-    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -528,7 +501,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private renderMetadata(): void {
-    const nameElement = this.domElement.querySelector('.bpmn-dialog__name') as HTMLElement | null;
+    const nameElement = this.el!.querySelector('.bpmn-dialog__name') as HTMLElement | null;
     if (!nameElement || !this.metadata) {
       return;
     }
@@ -545,7 +518,7 @@ export class BpmnViewerDialog extends BaseDialog {
   }
 
   private updateSaveButton(): void {
-    const saveButton = this.domElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
+    const saveButton = this.el!.querySelector('[data-action="save"]') as HTMLButtonElement | null;
     if (saveButton) {
       saveButton.disabled = !this.isDirty || !this.isEditable();
     }

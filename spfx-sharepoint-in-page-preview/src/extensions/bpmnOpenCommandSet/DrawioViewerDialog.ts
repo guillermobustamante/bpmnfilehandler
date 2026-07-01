@@ -1,8 +1,8 @@
 import { SPHttpClient } from '@microsoft/sp-http';
-import { BaseDialog, type IDialogConfiguration } from '@microsoft/sp-dialog';
 import type { IFileExtensionSettings } from './previewSettings';
 import { SharePointFileService, type ISharePointFileMetadata } from './sharePointFileService';
 import { renderIcon } from '../../shared/icons';
+import { ensureDialogBaseStyles } from '../../shared/dialogUtils';
 
 const DRAWIO_EMBED_ORIGIN: string = 'https://embed.diagrams.net';
 const DRAWIO_EMBED_URL: string = `${DRAWIO_EMBED_ORIGIN}/?embed=1&proto=json&spin=1&libraries=1&noSaveBtn=1&noExitBtn=1`;
@@ -13,31 +13,44 @@ type DrawioMessage = {
   xml?: string;
 };
 
-export class DrawioViewerDialog extends BaseDialog {
+export class DrawioViewerDialog {
+  private el: HTMLDialogElement | undefined;
   private fileService: SharePointFileService;
   private iframeElement: HTMLIFrameElement | undefined;
   private isDirty: boolean = false;
   private metadata: ISharePointFileMetadata | undefined;
   private readonly onMessageBound = this.onMessage.bind(this);
+  private readonly onFullscreenChangeBound = (): void => this.updateFullscreenButton();
   private xml: string = '';
 
   public constructor(
+    private readonly hostEl: HTMLElement,
     spHttpClient: SPHttpClient,
     webAbsoluteUrl: string,
     private readonly serverRelativeUrl: string,
     private readonly fileName: string,
     private readonly extensionSettings: IFileExtensionSettings
   ) {
-    super({ isBlocking: false });
     this.fileService = new SharePointFileService(spHttpClient, webAbsoluteUrl);
   }
 
-  public render(): void {
-    this.domElement.style.cssText = 'box-sizing:border-box;display:flex;flex-direction:column;height:100dvh;inset:0;overflow:hidden;position:fixed;width:100vw;z-index:2147483647;';
-    this.makeFullViewport();
-    window.requestAnimationFrame(() => this.makeFullViewport());
-    window.setTimeout(() => this.makeFullViewport(), 300);
-    this.domElement.innerHTML = `
+  public open(): void {
+    ensureDialogBaseStyles(this.hostEl);
+    const dlg = document.createElement('dialog');
+    dlg.className = 'bpf-viewer-dialog';
+    this.hostEl.appendChild(dlg);
+    this.el = dlg;
+    this.render();
+    dlg.showModal();
+    dlg.addEventListener('close', () => { this.afterClose(); }, { once: true });
+  }
+
+  private closeDialog(): void {
+    this.el?.close();
+  }
+
+  private render(): void {
+    this.el!.innerHTML = `
       <div class="drawio-dialog">
         <div class="drawio-dialog__header">
           <div class="drawio-dialog__title">
@@ -65,27 +78,24 @@ export class DrawioViewerDialog extends BaseDialog {
           </div>
         </div>
         <div class="drawio-dialog__message" data-role="message" hidden></div>
+        <div class="drawio-dialog__notice">Diagrams are rendered by the external <strong>diagrams.net</strong> service (embed.diagrams.net). File content is transmitted outside SharePoint.</div>
         <iframe class="drawio-dialog__frame" data-role="frame" title="diagrams.net preview" sandbox="allow-downloads allow-forms allow-popups allow-same-origin allow-scripts" src="${DRAWIO_EMBED_URL}"></iframe>
       </div>
     `;
 
     this.ensureStyles();
-    this.iframeElement = this.domElement.querySelector('[data-role="frame"]') as HTMLIFrameElement | undefined;
+    this.iframeElement = this.el!.querySelector('[data-role="frame"]') as HTMLIFrameElement | undefined;
     this.wireEvents();
     window.addEventListener('message', this.onMessageBound);
     this.load().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not open draw.io file.'));
   }
 
-  public getConfig(): IDialogConfiguration {
-    return {
-      isBlocking: false
-    };
-  }
-
-  protected onAfterClose(): void {
+  private afterClose(): void {
+    document.removeEventListener('fullscreenchange', this.onFullscreenChangeBound);
     this.exitFullscreen().catch(() => undefined);
     window.removeEventListener('message', this.onMessageBound);
-    super.onAfterClose();
+    this.el?.remove();
+    this.el = undefined;
   }
 
   private async load(): Promise<void> {
@@ -106,7 +116,13 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private async save(): Promise<void> {
-    this.requestSaveXml();
+    // Use the locally cached XML (kept current by autosave events) rather than
+    // waiting for diagrams.net to respond to { action: 'save' }, which is unreliable
+    // when noSaveBtn=1 suppresses the save flow inside the iframe.
+    if (!this.isEditable() || !this.xml) {
+      return;
+    }
+    await this.saveXml(this.xml);
   }
 
   private async saveXml(xml: string): Promise<void> {
@@ -163,7 +179,7 @@ export class DrawioViewerDialog extends BaseDialog {
         }
         break;
       case 'exit':
-        this.close().catch(() => undefined);
+        this.closeDialog();
         break;
       default:
         if (message.message) {
@@ -191,75 +207,33 @@ export class DrawioViewerDialog extends BaseDialog {
     );
   }
 
-  private requestSaveXml(): void {
-    this.iframeElement?.contentWindow?.postMessage(JSON.stringify({ action: 'save' }), DRAWIO_EMBED_ORIGIN);
-  }
-
   private fitDiagram(): void {
     // Reloading the current XML causes diagrams.net to reset the viewport and fit the diagram.
     window.setTimeout(() => this.sendLoadMessage(), 50);
   }
 
   private wireEvents(): void {
-    this.domElement.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       this.load().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not reload file.'));
     });
-    this.domElement.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="save"]')?.addEventListener('click', () => {
       this.save().catch((error: unknown) => this.setError(error instanceof Error ? error.message : 'Could not save file.'));
     });
-    this.domElement.querySelector('[data-action="download"]')?.addEventListener('click', () => this.download());
-    this.domElement.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.fitDiagram());
-    this.domElement.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
+    this.el!.querySelector('[data-action="download"]')?.addEventListener('click', () => this.download());
+    this.el!.querySelector('[data-action="fit"]')?.addEventListener('click', () => this.fitDiagram());
+    this.el!.querySelector('[data-action="fullscreen"]')?.addEventListener('click', () => {
       this.toggleFullscreen().catch((error: unknown) =>
         this.setError(error instanceof Error ? error.message : 'Could not open full screen.')
       );
     });
-    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
-    this.domElement.querySelector('.drawio-dialog__close')?.addEventListener('click', () => {
-      this.close().catch(() => undefined);
+    document.addEventListener('fullscreenchange', this.onFullscreenChangeBound);
+    this.el!.querySelector('.drawio-dialog__close')?.addEventListener('click', () => {
+      this.closeDialog();
     });
   }
 
-  private makeFullViewport(): void {
-    // Fluent UI's dialog open animation applies CSS transform to ancestor elements,
-    // making them a new containing block for position:fixed children (CSS spec).
-    // Fix: clear all containing-block-creating properties on every ancestor, then
-    // measure the raw offset and apply an inverse translate to reach viewport origin.
-    let parent: HTMLElement | null = this.domElement.parentElement;
-    while (parent && parent !== document.body) {
-      parent.style.setProperty('animation', 'none', 'important');
-      parent.style.setProperty('transition', 'none', 'important');
-      parent.style.setProperty('transform', 'none', 'important');
-      parent.style.setProperty('will-change', 'auto', 'important');
-      parent.style.setProperty('filter', 'none', 'important');
-      parent.style.setProperty('perspective', 'none', 'important');
-      parent.style.setProperty('contain', 'none', 'important');
-      parent.style.setProperty('max-width', 'none', 'important');
-      parent.style.setProperty('max-height', 'none', 'important');
-      parent.style.setProperty('overflow', 'visible', 'important');
-      parent.style.setProperty('border-radius', '0', 'important');
-      parent = parent.parentElement;
-    }
-
-    const el = this.domElement;
-    el.style.setProperty('position', 'fixed', 'important');
-    el.style.setProperty('inset', '0', 'important');
-    el.style.setProperty('width', '100vw', 'important');
-    el.style.setProperty('height', '100dvh', 'important');
-    el.style.setProperty('z-index', '2147483647', 'important');
-
-    // Remove any prior compensation transform so getBoundingClientRect reflects
-    // the raw containing-block offset (not the already-translated position).
-    // removeProperty + getBoundingClientRect are synchronous; no paint occurs between.
-    el.style.removeProperty('transform');
-    const rect = el.getBoundingClientRect();
-    if (rect.left !== 0 || rect.top !== 0) {
-      el.style.setProperty('transform', `translate(${-rect.left}px,${-rect.top}px)`, 'important');
-    }
-  }
-
   private ensureStyles(): void {
-    if (this.domElement.querySelector('style[data-bpf-preview-style="drawio"]')) {
+    if (this.el!.querySelector('style[data-bpf-preview-style="drawio"]')) {
       return;
     }
 
@@ -374,6 +348,14 @@ export class DrawioViewerDialog extends BaseDialog {
         background: #fde7e9;
         color: #7b1f23;
       }
+      .drawio-dialog__notice {
+        background: #fff8e1;
+        border-bottom: 1px solid #ffe082;
+        color: #5c4700;
+        flex: 0 0 auto;
+        font-size: 12px;
+        padding: 5px 20px;
+      }
       .drawio-dialog__frame {
         background: #ffffff;
         border: 0;
@@ -382,7 +364,7 @@ export class DrawioViewerDialog extends BaseDialog {
         min-height: 0;
         width: 100%;
       }
-      :fullscreen .drawio-dialog {
+      .drawio-dialog:fullscreen {
         min-height: 100dvh;
       }
       @media (max-width: 720px) {
@@ -396,7 +378,7 @@ export class DrawioViewerDialog extends BaseDialog {
         }
       }
     `;
-    this.domElement.appendChild(style);
+    this.el!.appendChild(style);
   }
 
   private async toggleFullscreen(): Promise<void> {
@@ -405,7 +387,8 @@ export class DrawioViewerDialog extends BaseDialog {
       return;
     }
 
-    await this.domElement.requestFullscreen();
+    const target = this.el!.firstElementChild as HTMLElement | null;
+    await (target ?? document.documentElement).requestFullscreen();
     this.updateFullscreenButton();
   }
 
@@ -417,7 +400,7 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private updateFullscreenButton(): void {
-    const button = this.domElement.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
+    const button = this.el!.querySelector('[data-action="fullscreen"]') as HTMLButtonElement | null;
     if (!button) {
       return;
     }
@@ -439,7 +422,7 @@ export class DrawioViewerDialog extends BaseDialog {
 
   private setBusy(isBusy: boolean, status: string): void {
     this.setStatus(status);
-    this.domElement.querySelectorAll('.drawio-dialog__button').forEach((button) => {
+    this.el!.querySelectorAll('.drawio-dialog__button').forEach((button) => {
       const typedButton = button as HTMLButtonElement;
       if (typedButton.dataset.action === 'save') {
         typedButton.disabled = isBusy || !this.isEditable();
@@ -450,14 +433,14 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private setStatus(status: string): void {
-    const statusElement = this.domElement.querySelector('[data-role="status"]') as HTMLElement | null;
+    const statusElement = this.el!.querySelector('[data-role="status"]') as HTMLElement | null;
     if (statusElement) {
       statusElement.textContent = status;
     }
   }
 
   private setMessage(message: string): void {
-    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -468,7 +451,7 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private setError(message: string): void {
-    const messageElement = this.domElement.querySelector('[data-role="message"]') as HTMLElement | null;
+    const messageElement = this.el!.querySelector('[data-role="message"]') as HTMLElement | null;
     if (!messageElement) {
       return;
     }
@@ -479,7 +462,7 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private renderMetadata(): void {
-    const nameElement = this.domElement.querySelector('.drawio-dialog__name') as HTMLElement | null;
+    const nameElement = this.el!.querySelector('.drawio-dialog__name') as HTMLElement | null;
     if (!nameElement || !this.metadata) {
       return;
     }
@@ -496,7 +479,7 @@ export class DrawioViewerDialog extends BaseDialog {
   }
 
   private updateSaveButton(): void {
-    const saveButton = this.domElement.querySelector('[data-action="save"]') as HTMLButtonElement | null;
+    const saveButton = this.el!.querySelector('[data-action="save"]') as HTMLButtonElement | null;
     if (saveButton) {
       saveButton.disabled = !this.isEditable();
     }

@@ -100,19 +100,20 @@ export default class BpmnOpenCommandSetCommandSet extends BaseListViewCommandSet
     const webUrl = this.context.pageContext.web.absoluteUrl;
     const { renderer } = selectedFile.extensionSettings;
 
+    const host = document.body;
     let dialog;
     if (renderer === 'diagrams-net-embed') {
-      dialog = new DrawioViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+      dialog = new DrawioViewerDialog(host, spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
     } else if (renderer === 'mermaid-js') {
-      dialog = new MermaidViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+      dialog = new MermaidViewerDialog(host, spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
     } else if (renderer === 'web-ifc') {
-      dialog = new IfcViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+      dialog = new IfcViewerDialog(host, spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
     } else if (renderer === 'occt-step') {
-      dialog = new StepViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+      dialog = new StepViewerDialog(host, spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
     } else {
-      dialog = new BpmnViewerDialog(spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
+      dialog = new BpmnViewerDialog(host, spHttpClient, webUrl, serverRelativeUrl, selectedFile.fileName, selectedFile.extensionSettings);
     }
-    await dialog.show();
+    dialog.open();
   }
 
   private onListViewStateChanged = (_args: ListViewStateChangedEventArgs): void => {

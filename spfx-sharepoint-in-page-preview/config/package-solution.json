@@ -3,7 +3,7 @@
   "solution": {
     "name": "bpmn-open-command-set-client-side-solution",
     "id": "2ab9f11d-b745-4c32-b87a-460301fccf91",
-    "version": "1.5.21.0",
+    "version": "1.6.2.0",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
@@ -33,7 +33,7 @@
         "title": "File Preview Command Set",
         "description": "Deploys the document-library preview command and tenant admin page.",
         "id": "45deb6cb-3879-401d-8133-4cb2cd5fe682",
-        "version": "1.5.21.0",
+        "version": "1.6.2.0",
         "assets": {
           "elementManifests": [
             "elements.xml",
